@@ -91,8 +91,11 @@ const CONSOLE_ENTRIES: readonly NavEntry[] = [
 ];
 
 /**
- * 云管（e-cam-web）深链组：路径与 e-cam-web PlatformNav 同源（router history base /cam）。
- * 覆盖其高频入口：资源·主机 / 网络 / 数据与中间件 / 服务树 / FinOps / 平台管理。
+ * 云管与 CMDB 深链组：
+ * - /cam/*  → e-cam-web 云管（router history base /cam）；
+ * - /cmdb/* → e-cmdb-web 独立前端（router history base /cmdb），承载资源模型/实例/关系/
+ *   服务树/拓扑（CMDB 域已从云管拆出为独立子模块）。
+ * 覆盖高频入口：资源·主机 / 网络 / 数据与中间件 / 服务树 / FinOps / 平台管理 / CMDB。
  */
 const CAM_GROUPS: readonly NavGroup[] = [
   {
@@ -116,12 +119,12 @@ const CAM_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
-    key: "cam-svc",
+    key: "cmdb-svc",
     title: "服务树 · 任务",
     dot: "#34d399",
     entries: [
-      { key: "cam-svc-tree", title: "服务树总览", desc: "服务治理", icon: SetUp, to: "/cam/service-tree", external: true },
-      { key: "cam-env", title: "环境管理", desc: "环境治理", icon: Grid, to: "/cam/service-tree/environments", external: true },
+      { key: "cmdb-svc-tree", title: "服务树总览", desc: "服务治理", icon: SetUp, to: "/cmdb/service-tree", external: true },
+      { key: "cmdb-env", title: "环境管理", desc: "环境治理", icon: Grid, to: "/cmdb/service-tree/environments", external: true },
     ],
   },
   {
@@ -139,7 +142,8 @@ const CAM_GROUPS: readonly NavGroup[] = [
     dot: "#a78bfa",
     entries: [
       { key: "cam-alert", title: "告警事件", desc: "告警中心", icon: Bell, to: "/cam/alert/events", external: true },
-      { key: "cam-cmdb-model", title: "资源模型", desc: "CMDB", icon: SetUp, to: "/cam/cmdb/models", external: true },
+      { key: "cmdb-model", title: "资源模型", desc: "CMDB", icon: SetUp, to: "/cmdb/models", external: true },
+      { key: "cmdb-topology", title: "资源拓扑", desc: "链路拓扑", icon: Connection, to: "/cmdb/topology", external: true },
       { key: "cam-account", title: "云账号管理", desc: "多云账号接入", icon: User, to: "/cam/accounts", external: true },
     ],
   },
@@ -241,8 +245,9 @@ function persist(): void {
 function go(entry: NavEntry | FavItem): void {
   const path = "to" in entry ? entry.to : entry.path;
   close();
-  if (entry.external && path.startsWith("/cam/")) {
-    // 跨应用深链：新标签打开 /cam/<path>（共享 cookie 免重复登录；noopener 反劫持）
+  if (entry.external && (path.startsWith("/cam/") || path.startsWith("/cmdb/"))) {
+    // 跨应用深链：新标签打开 /cam/<path> 或 /cmdb/<path>
+    // （共享 cookie 免重复登录；noopener 反劫持）
     window.open(path, "_blank", "noopener");
     return;
   }
