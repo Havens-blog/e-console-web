@@ -26,8 +26,20 @@ import { eiamAxios } from "@/api/request/eiam";
 // ---- vue-router mock ----
 const mockReplace = vi.fn();
 const routeQuery = { redirect: undefined as string | undefined };
+/** finalizeLogin 会先 router.resolve 判断站内/跨应用（站内 SPA、跨应用整页跳转）。
+ *  测试内以「内部路由集」模拟 console 路由表；集合外（如 /cam/）→ matched 空。 */
+const internalRoutes = new Set([
+  "/workbench",
+  "/tenant-select",
+  "/users",
+  "/forbidden",
+  "/login",
+]);
+const mockResolve = vi.fn((path: string) => ({
+  matched: internalRoutes.has(path) ? [{ name: "x" }] : [],
+}));
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ replace: mockReplace }),
+  useRouter: () => ({ replace: mockReplace, resolve: mockResolve }),
   useRoute: () => ({ query: routeQuery }),
 }));
 
@@ -500,6 +512,29 @@ describe("AC：成功 → 按 tenants 数分流（0/1/≥2）", () => {
     await flushPromises();
     await nextTick();
     expect(mockReplace).toHaveBeenCalledWith("/users");
+  });
+
+  it("redirect 为完整同源 URL（跨应用回跳）→ 整页跳转而非 SPA replace", async () => {
+    const assignSpy = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => {});
+    routeQuery.redirect = `${window.location.origin}/cam/`;
+    adapterRouting(
+      () => ({ status: 200, body: loginEnvelope() }),
+      () => ({
+        status: 200,
+        body: profileEnvelope([{ id: 4, name: "p", code: "p", domain: "p.x" }]),
+      }),
+    );
+    const wrapper = await mountLogin();
+    setFieldValue(wrapper, "username", "admin");
+    setFieldValue(wrapper, "password", "pw");
+    await submitForm(wrapper);
+    await flushPromises();
+    await nextTick();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(assignSpy).toHaveBeenCalledWith("/cam/");
+    assignSpy.mockRestore();
   });
 });
 

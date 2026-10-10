@@ -136,6 +136,25 @@ function mapErrorToContractKey(error: unknown, mfaPhase: boolean): string {
     : "登录失败";
 }
 
+/**
+ * 把 login?redirect=xxx 规范化为可导航目标。
+ * 上游（e-cam-web）可能给完整 URL（如 http://localhost:8888/cam/），
+ * vue-router 只认站内路径，把完整 URL 当路径匹配必然 no-match、卡死登录页。
+ * 只放行同源（防开放重定向），返回 path+search+hash；非法/跨源 → null 回退内部目标。
+ */
+function sanitizeRedirect(raw: string): string | null {
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw, window.location.origin);
+  } catch {
+    return null;
+  }
+  if (url.origin !== window.location.origin) return null;
+  const path = url.pathname + url.search + url.hash;
+  return path && path !== "/" ? path : null;
+}
+
 /** 终结登录：拉 profile → 按租户数分流（F-1 自算 tenants.length） */
 async function finalizeLogin(): Promise<void> {
   const ok = await userStore.fetchProfile();
@@ -149,7 +168,15 @@ async function finalizeLogin(): Promise<void> {
     typeof route.query.redirect === "string" ? route.query.redirect : null;
   // ≥2 → 租户选择页；0/1 → 工作台（受限态由 workbench 自处理，3.3 承接）
   const target = tenants.length >= 2 ? "/tenant-select" : "/workbench";
-  await router.replace(redirect ?? target);
+  const dest = sanitizeRedirect(redirect ?? "") ?? target;
+  // 站内应用路由（/workbench 等）走 SPA；跨应用路径（/cam/ 等）在 console
+  // 路由表无匹配，必须整页跳转交给对应前端（Guard 2.6 登录携带语义不变）。
+  const resolved = router.resolve(dest);
+  if (resolved.matched.length > 0) {
+    await router.replace(dest);
+  } else {
+    window.location.assign(dest);
+  }
 }
 
 /** 密码 / LDAP 登录提交 */
