@@ -58,6 +58,12 @@ const APPS: readonly AppEntry[] = [
     desc: "对话式排障编排",
     url: import.meta.env.VITE_APP_OPSAGENT_BASE ?? "/opsagent/",
   },
+  {
+    key: "watchalert",
+    label: "WatchAlert",
+    desc: "监控告警",
+    url: import.meta.env.VITE_APP_WATCHALERT_BASE ?? "/watchalert/",
+  },
 ];
 
 const userStore = useUserStore();
