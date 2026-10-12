@@ -18,7 +18,6 @@ import {
   gotoLogin,
   loginOkEnvelope,
   profileEnvelope,
-  WORKBENCH_PATH,
 } from '../eiam-sso-login/helpers'
 
 test.describe('dev-subsystem-startup / Smoke: web happy path', () => {

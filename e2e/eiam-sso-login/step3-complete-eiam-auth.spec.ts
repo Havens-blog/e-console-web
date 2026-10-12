@@ -22,7 +22,6 @@ import {
   LOGIN_PATH,
   profileEnvelope,
   SESSION_COOKIE_KEY,
-  WORKBENCH_PATH,
 } from './helpers'
 
 test.describe('eiam-sso-login / Step 3: complete eiam auth', () => {

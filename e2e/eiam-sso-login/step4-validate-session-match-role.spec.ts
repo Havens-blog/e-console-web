@@ -20,7 +20,6 @@ import {
   fulfillAuthRoutes,
   gotoLogin,
   loginOkEnvelope,
-  LOGIN_PATH,
   profileEnvelope,
   SESSION_COOKIE_KEY,
   WORKBENCH_PATH,
@@ -135,7 +134,6 @@ test.describe('eiam-sso-login / Step 4: validate session and match role', () => 
 
   // Step 4 / Outcome "invalid-role-binding": invalid role value → 403 (same as no-role)
   test('invalid role binding value results in 403 not default access', async ({ page }) => {
-    let profileCallCount = 0
     await page.route('**/api/iam/user/**', async (route) => {
       const url = route.request().url()
       if (url.includes('/system/login')) {
@@ -148,7 +146,6 @@ test.describe('eiam-sso-login / Step 4: validate session and match role', () => 
           body: JSON.stringify(loginOkEnvelope()),
         })
       } else if (url.includes('/profile')) {
-        profileCallCount++
         // Profile with is_admin=false and no permissions (invalid role binding)
         await route.fulfill({
           status: 200,

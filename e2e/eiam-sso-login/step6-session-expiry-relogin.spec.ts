@@ -14,10 +14,8 @@
 import { expect, test } from '@playwright/test'
 import {
   errorEnvelope,
-  fulfillAuthRoutes,
   gotoLogin,
   loginOkEnvelope,
-  LOGIN_PATH,
   profileEnvelope,
   SESSION_COOKIE_KEY,
   WORKBENCH_PATH,

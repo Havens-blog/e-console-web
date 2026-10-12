@@ -15,7 +15,6 @@ import {
   gotoLogin,
   loginOkEnvelope,
   profileEnvelope,
-  WORKBENCH_PATH,
 } from './helpers'
 
 test.describe('eiam-sso-login / Step 5: enter dashboard', () => {

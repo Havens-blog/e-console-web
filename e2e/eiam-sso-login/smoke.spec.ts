@@ -18,7 +18,6 @@ import {
   fulfillAuthRoutes,
   gotoLogin,
   loginOkEnvelope,
-  LOGIN_PATH,
   profileEnvelope,
   SESSION_COOKIE_KEY,
   WORKBENCH_PATH,

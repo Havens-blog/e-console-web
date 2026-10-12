@@ -15,9 +15,7 @@ import { expect, test } from '@playwright/test'
 import {
   BASE_URL,
   fulfillAuthRoutes,
-  gotoLogin,
   LOGIN_PATH,
-  profileEnvelope,
   WORKBENCH_PATH,
 } from './helpers'
 
