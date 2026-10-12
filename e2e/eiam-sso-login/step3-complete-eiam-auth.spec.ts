@@ -14,6 +14,7 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  AUTH_INVALID_CREDS_DISPLAY,
   EIAM_INVALID_USER_MSG,
   errorEnvelope,
   fulfillAuthRoutes,
@@ -87,7 +88,7 @@ test.describe('eiam-sso-login / Step 3: complete eiam auth', () => {
     await page.getByRole('button', { name: '登录', exact: true }).click()
 
     // Assert: error message displayed (behavioral — content verification)
-    await expect(page.getByText(EIAM_INVALID_USER_MSG)).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(AUTH_INVALID_CREDS_DISPLAY)).toBeVisible({ timeout: 10_000 })
     // Assert: still on login page (behavioral — navigation verification)
     await expect(page).toHaveURL(/\/console\/login/)
     // Deep: no session cookie created

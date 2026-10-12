@@ -16,10 +16,13 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  ADMIN_PERMISSIONS,
+  BASE_URL,
   errorEnvelope,
   fulfillAuthRoutes,
   gotoLogin,
   loginOkEnvelope,
+  LOGIN_PATH,
   profileEnvelope,
   SESSION_COOKIE_KEY,
   WORKBENCH_PATH,
@@ -28,19 +31,34 @@ import {
 test.describe('eiam-sso-login / Step 4: validate session and match role', () => {
   // Step 4 / Outcome "success": valid session with admin role loads dashboard
   test('valid session with role loads workbench with role-level features', async ({ page }) => {
-    await fulfillAuthRoutes(page, (url: string) => {
+    // Use page.route directly (not fulfillAuthRoutes) to avoid Set-Cookie on profile response
+    await page.route('**/api/iam/**', async (route) => {
+      const url = route.request().url()
       if (url.includes('/system/login')) {
-        return { status: 200, body: loginOkEnvelope() }
-      }
-      if (url.includes('/profile')) {
-        return {
+        await route.fulfill({
           status: 200,
-          body: profileEnvelope([
-            { id: 1, name: '默认租户', code: 'default', domain: 'localhost' },
-          ], true), // isAdmin = true → admin role
-        }
+          headers: { 'Content-Type': 'application/json', 'Set-Cookie': `${SESSION_COOKIE_KEY}=e2e-step4; Path=/; SameSite=Lax` },
+          body: JSON.stringify(loginOkEnvelope()),
+        })
+      } else if (url.includes('/profile')) {
+        await route.fulfill({
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: 0, msg: 'ok',
+            data: {
+              user: { id: 1, username: 'admin', nickname: '管理员' },
+              tenants: [{ id: 1, name: '默认租户', code: 'default', domain: 'localhost' }],
+              current_tenant_id: 1,
+              is_admin: true,
+              permissions: ADMIN_PERMISSIONS,
+              must_select_tenant: false,
+            },
+          }),
+        })
+      } else {
+        await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 0, msg: 'ok', data: null }) })
       }
-      return { status: 200, body: { code: 0, msg: 'ok', data: null } }
     })
 
     await gotoLogin(page)
@@ -204,18 +222,23 @@ test.describe('eiam-sso-login / Step 4: validate session and match role', () => 
       }
     })
 
-    // Act: read request via profile endpoint
-    const readResp = await page.request.get(
-      `${page.url().split('/console')[0]}/api/iam/user/profile`,
-    )
+    // Navigate to base URL so relative fetch URLs resolve correctly
+    await page.goto(BASE_URL)
+
+    // Act: read request via profile endpoint (use page.evaluate to go through route handlers)
+    const readResult = await page.evaluate(async () => {
+      const resp = await fetch('/api/iam/user/profile', { method: 'GET' })
+      return { status: resp.status }
+    })
     // Assert: read succeeds (behavioral — migration safety)
-    expect(readResp.status()).toBe(200)
+    expect(readResult.status).toBe(200)
 
     // Act: write request
-    const writeResp = await page.request.post(
-      `${page.url().split('/console')[0]}/api/iam/user/logout`,
-    )
+    const writeResult = await page.evaluate(async () => {
+      const resp = await fetch('/api/iam/user/logout', { method: 'POST' })
+      return { status: resp.status }
+    })
     // Deep: write blocked with 403 (state transition — write denied for legacy JWT)
-    expect(writeResp.status()).toBe(403)
+    expect(writeResult.status).toBe(403)
   })
 })

@@ -15,6 +15,7 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  AUTH_INVALID_CREDS_DISPLAY,
   fulfillAuthRoutes,
   gotoLogin,
   loginOkEnvelope,
@@ -25,11 +26,16 @@ import {
 
 test.describe('eiam-sso-login / Smoke: full happy path', () => {
   test('complete SSO login journey: unauth → login → dashboard → logout', async ({ page }) => {
+    let loggedOut = false
     await fulfillAuthRoutes(page, (url: string) => {
       if (url.includes('/system/login')) {
         return { status: 200, body: loginOkEnvelope() }
       }
       if (url.includes('/profile')) {
+        // After logout, profile fetch returns 401 (session destroyed)
+        if (loggedOut) {
+          return { status: 401, body: { code: 1401, msg: '未认证或会话过期', data: null } }
+        }
         return {
           status: 200,
           body: profileEnvelope([
@@ -38,6 +44,7 @@ test.describe('eiam-sso-login / Smoke: full happy path', () => {
         }
       }
       if (url.includes('/logout')) {
+        loggedOut = true
         return { status: 200, body: { code: 0, msg: 'ok', data: null } }
       }
       return { status: 200, body: { code: 0, msg: 'ok', data: null } }
@@ -102,7 +109,7 @@ test.describe('eiam-sso-login / Smoke: full happy path', () => {
     await page.getByRole('button', { name: '登录', exact: true }).click()
 
     // Assert: error visible, still on login page (behavioral)
-    await expect(page.getByText('认证失败 (账号或密码错误)')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(AUTH_INVALID_CREDS_DISPLAY)).toBeVisible({ timeout: 10_000 })
     await expect(page).toHaveURL(/\/console\/login/)
 
     // Deep: no session cookie

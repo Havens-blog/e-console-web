@@ -16,6 +16,7 @@ import { expect, test } from '@playwright/test'
 import {
   errorEnvelope,
   fulfillAuthRoutes,
+  gotoLogin,
   loginOkEnvelope,
   LOGIN_PATH,
   profileEnvelope,
@@ -78,7 +79,30 @@ test.describe('eiam-sso-login / Step 2: redirect to eiam login', () => {
 
   // Step 2 / Outcome "eiam-unavailable-readonly": eiam fully down → readonly view
   test('eiam unavailable shows degradation notice without login form', async ({ page }) => {
-    // Fulfill all eiam requests with 500 (continuous failure)
+    // Setup: establish a session first via CONTRACT login, then simulate eiam going down
+    await fulfillAuthRoutes(page, (url: string) => {
+      if (url.includes('/system/login')) {
+        return { status: 200, body: loginOkEnvelope() }
+      }
+      if (url.includes('/profile')) {
+        return {
+          status: 200,
+          body: profileEnvelope([
+            { id: 1, name: '默认租户', code: 'default', domain: 'localhost' },
+          ]),
+        }
+      }
+      return { status: 200, body: { code: 0, msg: 'ok', data: null } }
+    })
+
+    await gotoLogin(page)
+    await page.getByTestId('username').fill('admin')
+    await page.getByTestId('password').fill('12345678')
+    await page.getByRole('button', { name: '登录', exact: true }).click()
+    await page.waitForURL(/\/console\/workbench$/, { timeout: 15_000 })
+
+    // Now simulate eiam going down: override all /api/iam/** with 500
+    await page.unroute('**/api/iam/user/**')
     await page.route('**/api/iam/**', async (route) => {
       await route.fulfill({
         status: 500,
@@ -87,10 +111,10 @@ test.describe('eiam-sso-login / Step 2: redirect to eiam login', () => {
       })
     })
 
-    await page.goto(WORKBENCH_PATH)
+    // Trigger profile re-fetch via debug hook → 500 → error set → degradation banner
+    await page.evaluate(() => (window as any).__hcDebug.fetchProfile())
 
     // Assert: degradation indicator appears (behavioral — visual presence)
-    // The workbench shows a degradation banner when eiam is unavailable
     await expect(page.getByTestId('workbench-degradation')).toBeVisible({ timeout: 10_000 })
   })
 

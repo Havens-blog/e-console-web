@@ -43,6 +43,26 @@ export const EIAM_USER_LOCKED_MSG = '账号由于多次输入错误已被锁定�
 export const EIAM_MFA_INVALID_MSG = '验证码不正确'
 export const EIAM_MFA_LOCKED_MSG = '验证失败次数过多，请重新登录'
 
+// Frontend contract display text (source: src/utils/copyContract.ts COPY_CONTRACT)
+// Login.vue maps eiam code 4010202 → auth.invalid_credentials → '用户名或密码错误'
+export const AUTH_INVALID_CREDS_DISPLAY = '用户名或密码错误'
+export const AUTH_ACCOUNT_LOCKED_DISPLAY = '尝试次数过多，账号已锁定'
+
+// Admin permissions (source: src/config/permission-codes.ts)
+// Workbench stat cards require these to be visible:
+//   stat-card-users → iam:user:view, stat-card-roles → iam:role:view,
+//   stat-card-tenants → iam:tenant:view (+ isAdmin)
+export const ADMIN_PERMISSIONS = [
+  'iam:user:view', 'iam:user:add', 'iam:user:edit', 'iam:user:get',
+  'iam:user:delete', 'iam:user:batch_delete',
+  'iam:role:view', 'iam:role:add', 'iam:role:edit', 'iam:role:get',
+  'iam:role:delete', 'iam:role:batch_assign', 'iam:role:batch_unassign',
+  'iam:tenant:view', 'iam:tenant:add', 'iam:tenant:edit', 'iam:tenant:get',
+  'iam:policy:view', 'iam:policy:add', 'iam:policy:edit',
+  'iam:department:view', 'iam:department:assign',
+  'iam:identity_source:view',
+]
+
 // ---- Envelope construction (parity §3.2 snake_case verified shape) ----
 
 export function envelope(data: unknown, code = 0, msg = 'ok'): unknown {
@@ -70,6 +90,20 @@ export function profileEnvelope(
     is_admin: isAdmin,
     permissions: [],
     must_select_tenant: false, // F-1: always false; frontend computes tenants.length
+  })
+}
+
+/** Profile envelope with admin permissions (for stat-card visibility tests) */
+export function adminProfileEnvelope(
+  tenants: Array<{ id: number; name: string; code: string; domain: string }> = [],
+): unknown {
+  return envelope({
+    user: { id: 1, username: 'admin', nickname: '管理员' },
+    tenants,
+    current_tenant_id: tenants[0]?.id ?? 0,
+    is_admin: true,
+    permissions: ADMIN_PERMISSIONS,
+    must_select_tenant: false,
   })
 }
 

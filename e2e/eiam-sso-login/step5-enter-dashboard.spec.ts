@@ -11,28 +11,45 @@
  */
 import { expect, test } from '@playwright/test'
 import {
+  ADMIN_PERMISSIONS,
   fulfillAuthRoutes,
   gotoLogin,
   loginOkEnvelope,
   profileEnvelope,
+  SESSION_COOKIE_KEY,
 } from './helpers'
 
 test.describe('eiam-sso-login / Step 5: enter dashboard', () => {
   // Step 5 / Outcome "success": authenticated user with role sees workbench
   test('authenticated admin sees workbench with full feature set', async ({ page }) => {
-    await fulfillAuthRoutes(page, (url: string) => {
+    // Use page.route directly (not fulfillAuthRoutes) to avoid Set-Cookie on profile response
+    await page.route('**/api/iam/**', async (route) => {
+      const url = route.request().url()
       if (url.includes('/system/login')) {
-        return { status: 200, body: loginOkEnvelope() }
-      }
-      if (url.includes('/profile')) {
-        return {
+        await route.fulfill({
           status: 200,
-          body: profileEnvelope([
-            { id: 1, name: '默认租户', code: 'default', domain: 'localhost' },
-          ], true), // isAdmin = true
-        }
+          headers: { 'Content-Type': 'application/json', 'Set-Cookie': `${SESSION_COOKIE_KEY}=e2e-step5; Path=/; SameSite=Lax` },
+          body: JSON.stringify(loginOkEnvelope()),
+        })
+      } else if (url.includes('/profile')) {
+        await route.fulfill({
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: 0, msg: 'ok',
+            data: {
+              user: { id: 1, username: 'admin', nickname: '管理员' },
+              tenants: [{ id: 1, name: '默认租户', code: 'default', domain: 'localhost' }],
+              current_tenant_id: 1,
+              is_admin: true,
+              permissions: ADMIN_PERMISSIONS,
+              must_select_tenant: false,
+            },
+          }),
+        })
+      } else {
+        await route.fulfill({ status: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 0, msg: 'ok', data: null }) })
       }
-      return { status: 200, body: { code: 0, msg: 'ok', data: null } }
     })
 
     await gotoLogin(page)
