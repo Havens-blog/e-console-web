@@ -140,7 +140,7 @@ export function formatReport(result) {
   }
   lines.push('─'.repeat(60))
   if (result.passed) {
-    lines.push('✅ 漂移比对通过（3 拷贝面源文件与登记 hash 一致）')
+    lines.push(`✅ 漂移比对通过（${result.results.length} 个拷贝面源文件与登记 hash 一致）`)
   } else {
     lines.push('❌ 漂移检出（Hard Rule：以 e-cam-web 源文件为准）')
     lines.push('')

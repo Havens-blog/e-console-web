@@ -26,6 +26,14 @@
       "sha256": "37731a9450ae39461bc234e3120eb075e107b9d116fa2ecb00e7fe925d2e3fab",
       "sourceSha256": "3c08734545a35dd6be9e34243e06d4679486d3faf833a8073baee6ac4b48a267",
       "note": "模式文件（非逐字节拷贝）：e-cam-web 源文件 import ./index(redirectToLogin) 与 @/utils/cookie(getEcmdbToken)，两模块不在 2.4 改动面内，本仓自包含适配——cookie 读取内联（同名 ecmdb-token-key，读法同 utils/cookie.ts）+ redirectToLogin(isRedirectingToLogin 防抖) 内联（登录目标恒 /console/login），另按任务 2.4 AC 增加 unwrapEnvelope/ApiError 错误分类学。sha256 = 控制台文件本体（LF 工作区形态）；sourceSha256 = e-cam-web 模式源 git blob（LF）——CI 漂移防线：模式源 sha 变化 → 人工评估差异 → 同步适配 + 更新双 hash + 请求层冒烟回归。e-cam-web 工作区（Windows autocrlf CRLF 形态）实测 sha256 = b3ec601e3c1afac79430182aa078146eb9af35565aea755c188d6d16ee9eb342，供本机复算对照。\n2.6 增量：导出 hasSessionCookie()（router 守卫 ① 唯一调用点，复用同源 SESSION_COOKIE_KEY，不重复硬编码）；控制台本体 sha256 同步刷新。sourceSha256 未变（e-cam-web 源未动）。"
+    },
+    {
+      "path": "public/xirang-mark.svg",
+      "sourcePath": "public/xirang-mark.svg",
+      "sourceCommit": "76b9faeaf0375ceff43bfe005f88bc873a9d03e5",
+      "sourceCommitDate": "2026-10-13",
+      "sha256": "fed0c130e78a975717b84a2f090cea22521372cf8a18538a7826d8493cef0bd3",
+      "note": "品牌标识（逐字节拷贝）：与 e-cam-web public/xirang-mark.svg 完全一致，是平台统一 logo——任一仓单独改图会让两处 logo 不一致，故纳入登记。sha256 = 源文件 LF 形态；drift-check.mjs 对每个源文件同时计算 LF/CRLF 两种形态，任一匹配即视为未漂移，故与上面两条登记为工作区 CRLF 形态的 scss 不冲突。"
     }
   ],
   "pending": []
