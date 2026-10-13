@@ -14,7 +14,7 @@
 // 作为 CI 步骤与本地复算入口共享同一逻辑（scripts/__tests__ 覆盖）。
 
 import { readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const KB = 1024
@@ -119,11 +119,26 @@ export function summarizeGz(root) {
 
 /**
  * 检查预算：逐桶 + 总计，任一超限即 fail。
+ *
+ * 失效保护（审计 Tier 2 修复）：当 dist 下无任何 .gz 文件时直接判 fail，不再以
+ * 「0 KB ≤ 各桶上限」误判通过。原实现只统计 .gz，本地用 `vite build`（无
+ * generate-gz）构建时 dist 无 .gz → 0 KB 全过 → 打印「✅ 通过」→ 闸门形同虚设。
+ * CI 用 build:gz 不受影响，但构建命令写错即失效。此处从库函数层面根治。
  * @param {Summary} summary
  * @returns {CheckResult}
  */
 export function checkBudget(summary) {
   const failures = []
+  // 失效保护：无 .gz 产物即 fail（短路，跳过桶检查——无数据时 0 KB「通过」无意义）
+  if (summary.files.length === 0) {
+    failures.push({
+      scope: 'no-gz-files',
+      limitKb: null,
+      actualKb: null,
+      reason: 'dist 下未找到任何 .gz 产物（构建未预压缩，误用 vite build 而非 build:gz？）',
+    })
+    return { passed: false, failures }
+  }
   for (const [key, b] of Object.entries(summary.buckets)) {
     const limit = BUDGETS[key].limit
     if (b.kb > limit) {
@@ -166,12 +181,26 @@ export function formatReport(summary) {
 export function main(argv = process.argv) {
   const distDir = argv[2] || 'dist'
   const summary = summarizeGz(distDir)
-  console.log(formatReport(summary))
   const { passed, failures } = checkBudget(summary)
+
+  // 失效保护：无 .gz 时不打 formatReport（会显示误导性的 0 KB / OK），直接失败退出
+  if (summary.files.length === 0) {
+    console.error(`\n❌ gzip 预算闸门失败：${distDir} 下未找到任何 .gz 文件。`)
+    console.error('   构建未生成预压缩产物（可能误用 `vite build` 而非 `build:gz`）。')
+    console.error('   闸门失效保护：无 .gz 时直接失败，避免 0 KB 误判「✅ 通过」。')
+    console.error('   修复：先执行 `build:gz`（= vite build && node scripts/generate-gz.mjs）再跑 ci:gzip-budget。')
+    process.exit(1)
+  }
+
+  console.log(formatReport(summary))
   if (!passed) {
     console.error('\n❌ gzip 预算超限（Hard Rule：不得放宽后放行）:')
     for (const f of failures) {
-      console.error(`  - ${f.scope}: ${f.actualKb} KB > ${f.limitKb} KB`)
+      if (f.scope === 'no-gz-files') {
+        console.error(`  - ${f.scope}: ${f.reason}`)
+      } else {
+        console.error(`  - ${f.scope}: ${f.actualKb} KB > ${f.limitKb} KB`)
+      }
     }
     process.exit(1)
   }

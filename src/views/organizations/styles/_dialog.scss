@@ -1,0 +1,52 @@
+// ============================================================================
+// 组织管理页（UF-5）对话框外壳样式 —— 由 OrgList.vue 大文件拆分抽出
+// ============================================================================
+// 消费方：OrgDialogs.vue（新增子组织 / 编辑组织 / 删除确认三个弹窗共用同一套外壳）。
+// 规则文本与拆分前逐字一致（仅抽离，未改写任何声明）。
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  box-shadow: var(--shadow-base);
+
+  &--sm {
+    max-width: 400px;
+  }
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+  }
+  &__body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+  }
+}

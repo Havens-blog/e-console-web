@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="xirang-mark-title">
+  <title id="xirang-mark-title">息壤 Xirang</title>
+  <defs>
+    <linearGradient id="xr-top" x1="8" y1="22" x2="56" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7170ff"/>
+      <stop offset="1" stop-color="#5e6ad2"/>
+    </linearGradient>
+    <linearGradient id="xr-sprout" x1="32" y1="34" x2="32" y2="6" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7170ff"/>
+      <stop offset="1" stop-color="#a5b4fc"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 层叠土层：资源底座，越往下越淡 -->
+  <path d="M8 46 L32 58 L56 46" fill="none" stroke="#5e6ad2" stroke-opacity="0.45" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M8 40 L32 52 L56 40" fill="none" stroke="#5e6ad2" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M32 22 L56 34 L32 46 L8 34 Z" fill="url(#xr-top)"/>
+
+  <!-- 自生长的节点网络 -->
+  <g stroke="url(#xr-sprout)" stroke-width="3" stroke-linecap="round" fill="none">
+    <path d="M32 34 V14"/>
+    <path d="M32 24 L22 17"/>
+    <path d="M32 24 L42 17"/>
+  </g>
+  <circle cx="32" cy="34" r="3.2" fill="#ffffff"/>
+  <circle cx="32" cy="11" r="3.6" fill="#a5b4fc"/>
+  <circle cx="20" cy="15.5" r="3" fill="#8b93ff"/>
+  <circle cx="44" cy="15.5" r="3" fill="#8b93ff"/>
+</svg>

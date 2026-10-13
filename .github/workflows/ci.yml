@@ -97,6 +97,33 @@ jobs:
             vitest.log
           retention-days: 7
 
+  # ── lint：0 error / 0 warning 基线（2026-02 接入）───────────────────────
+  # `pnpm lint` = 纯检查（修复用 lint:fix）。首接基线 0E/18W 已全部清零；
+  # '_'-前缀参数/变量为约定占位豁免（eslint.config.js）。
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout haven-console
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        run: pnpm lint
+
   # ── AC2: gzip 预算闸门（≤ 300KB，四桶分解）────────────────────────────
   # 依赖 typecheck-build 产物（dist/**/*.gz）
   gzip-budget:

@@ -198,3 +198,43 @@ describe('summarizeGz + checkBudget', () => {
     expect(report).toContain('OVER')
   })
 })
+
+// 失效保护（审计 Tier 2 修复）：原实现只统计 .gz，dist 无 .gz 时 0 KB 全过 →
+// 「✅ 通过」误判。checkBudget 现在必须对「无 .gz 产物」直接判 fail。
+describe('失效保护：无 .gz 产物时闸门必须 fail', () => {
+  it('checkBudget fails when dist exists but has no .gz files', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'gz-empty-'))
+    try {
+      // 建一个空 dist 目录（无任何 .gz）——模拟误用 vite build（无 generate-gz）的产物
+      const s = summarizeGz(empty)
+      expect(s.files).toEqual([])
+      expect(s.totalBytes).toBe(0)
+      const r = checkBudget(s)
+      expect(r.passed).toBe(false)
+      expect(r.failures.some((f) => f.scope === 'no-gz-files')).toBe(true)
+    } finally {
+      rmSync(empty, { recursive: true, force: true })
+    }
+  })
+
+  it('checkBudget fails when dist dir does not exist', () => {
+    const missing = join(tmpdir(), 'gz-definitely-missing-' + process.pid)
+    const s = summarizeGz(missing)
+    expect(s.files).toEqual([])
+    const r = checkBudget(s)
+    expect(r.passed).toBe(false)
+    expect(r.failures.some((f) => f.scope === 'no-gz-files')).toBe(true)
+  })
+
+  it('no-gz failure short-circuits (no bucket failures listed alongside)', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'gz-empty-sc-'))
+    try {
+      const r = checkBudget(summarizeGz(empty))
+      // 短路：只应有 no-gz-files 一个失败，不附带空桶的「超限」噪音
+      expect(r.failures).toHaveLength(1)
+      expect(r.failures[0].scope).toBe('no-gz-files')
+    } finally {
+      rmSync(empty, { recursive: true, force: true })
+    }
+  })
+})

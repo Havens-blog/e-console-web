@@ -8,7 +8,6 @@ import {
   sha256Crlf,
   loadHashes,
   referenceHash,
-  checkOne,
   checkDrift,
   formatReport,
 } from '../drift-check.mjs'
