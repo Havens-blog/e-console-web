@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 
-/** 主题档位：仅 light / dark 两���（深色为默认，无 auto 档） */
+/** 主题档位：仅 light / dark 两档（深色为默认，无 auto 档） */
 export type Theme = 'light' | 'dark'
 
 /**

@@ -73,7 +73,7 @@ export interface PolicyStatement {
  * 上报 validation（不静默截断）。
  * eiam 端点以 **code** 为键（GET/DELETE /api/policy/detail|delete/:code）且 PolicyVO 携带 code 与
  * assignment_count（承载 E11 删除被拒的绑定计数提示）—— 本规范形保持设计最小字段集，
- * code/assignment_count 承载随 api 客户端（task 2.4 / 5.3）扩展���不提前扩形）。
+ * code/assignment_count 承载随 api 客户端（task 2.4 / 5.3）扩展（不提前扩形）。
  */
 export interface Policy {
   id: number

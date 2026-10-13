@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           // manualChunks 三分包（性能预算承接：element-plus ≤140KB / vue 生态 ≤50KB / 其余）：
-          // ① vue 生态 ② element-plus ③ 其余运行时依赖���当前仅 axios）
+          // ① vue 生态 ② element-plus ③ 其余运行时依赖（当前仅 axios）
           manualChunks: {
             'vue-vendor': ['vue', 'vue-router', 'pinia', 'pinia-plugin-persistedstate'],
             'element-plus': ['element-plus'],

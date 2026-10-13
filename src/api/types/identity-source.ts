@@ -29,7 +29,7 @@ export interface ConnParams {
     email?: string
     dn?: string
   }
-  /** ���时 1–30 秒，默认 5；eiam 无对应载荷位（D-2）—— 仅本地校验用 */
+  /** 超时 1–30 秒，默认 5；eiam 无对应载荷位（D-2）—— 仅本地校验用 */
   timeoutSec: number
 }
 
