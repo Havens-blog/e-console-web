@@ -148,8 +148,8 @@ jobs:
       - name: Gzip 预算检查（Hard Rule：超限必须 fail）
         run: node scripts/gzip-budget.mjs dist
 
-  # ── AC3/AC4: 拷贝面漂移对比（e-cam-web 源文件 sha256 vs shared-hashes.json）──
-  # Hard Rule：漂移对比只能以 e-cam-web 对应 commit 源文件为准。
+  # ── AC3/AC4: 拷贝面漂移对比（双向：e-cam-web 源 sha256 + 本仓拷贝 sha256 vs shared-hashes.json）──
+  # Hard Rule：源漂移只能以 e-cam-web 对应 commit 源文件为准；本仓漂移以本仓拷贝为准。
   drift-compare:
     name: Drift Compare (e-cam-web sha256)
     runs-on: ubuntu-latest
