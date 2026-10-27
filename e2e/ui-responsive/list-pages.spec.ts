@@ -21,10 +21,14 @@ const USERS_PATH = '/console/users'
 const ROLES_PATH = '/console/roles'
 const ORGS_PATH = '/console/organizations'
 
+// 真实 eiam 偶发抖动（仓库 playwright.config 注释亦已说明）会让登录接近默认 30s 预算，
+// 若不留余量，「后端慢」会被误判成布局回归。这里给足用例预算，登录侧仍保留一次重试。
+test.describe.configure({ timeout: 60_000 })
+
 /**
  * 真实 eiam 登录。
  * 本文件断言的是布局几何量，登录若因后端瞬时抖动超时，会表现为「布局断言失败」，
- * 故此处给 30s 等待，并对「提交未触发跳转」重试一次——避免用 retries 掩盖真实回归。
+ * 故此处给 20s 等待，并对「提交未触发跳转」重试一次——避免用 retries 掩盖真实回归。
  */
 async function loginAsAdmin(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -34,7 +38,7 @@ async function loginAsAdmin(page: Page): Promise<void> {
     await page.getByRole('button', { name: '登录工作台', exact: true }).click()
     try {
       await page.waitForURL(/\/console\/(tenant-select|workbench)$/, {
-        timeout: 30_000,
+        timeout: 20_000,
       })
       return
     } catch (err) {
@@ -413,5 +417,183 @@ test.describe('弹窗键盘与焦点可访问性', () => {
     const restored = await activeInfo(page)
     expect(restored.text).toBe('编辑')
     expect(restored.tag).toBe('BUTTON')
+  })
+})
+
+/**
+ * 弹窗可访问性接入的第二批页面：授权管理 / 策略管理 / 身份源管理。
+ *
+ * 层级说明（沿用仓库 tech-design 的 REAL / CONTRACT 两档）：
+ * - 授权、策略：REAL —— 真实 eiam 会话，无任何 page.route；
+ * - 身份源：CONTRACT —— 浏览器/nginx 真实，仅 fulfill profile 与 identity_source/list
+ *   两个响应体。原因：验证账号真实缺少 `iam:identity_source:view`，直连会被守卫剪到
+ *   /forbidden，无法触达该页弹窗。该用例仅验证「弹窗交互」，不验证接口行为。
+ */
+test.describe('弹窗可访问性 · 第二批页面', () => {
+  async function activeInfo(page: Page) {
+    return page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      return {
+        tag: el?.tagName ?? null,
+        testid: el?.getAttribute('data-testid') ?? null,
+        text: (el?.textContent ?? '').trim().slice(0, 12),
+        insideDialog: !!el?.closest('[role="dialog"],[role="alertdialog"]'),
+      }
+    })
+  }
+
+  test('REAL · 授权管理「撤销授权」：首焦点为取消、Escape 关闭、焦点归还行内按钮', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/authorizations`, { waitUntil: 'networkidle' })
+
+    const revokeBtn = page.getByRole('button', { name: '撤销', exact: true }).first()
+    await revokeBtn.focus()
+    await revokeBtn.click()
+
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toBeVisible()
+    await expect(confirm).toHaveAttribute('aria-modal', 'true')
+    // 危险操作：初始焦点必须是「取消」
+    expect((await activeInfo(page)).text).toBe('取消')
+    // ✕ 具备可访问名
+    await expect(confirm.getByRole('button', { name: '关闭', exact: true })).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(confirm).toHaveCount(0)
+    // 焦点归还到行内「撤销」
+    expect((await activeInfo(page)).text).toBe('撤销')
+  })
+
+  test('REAL · 策略管理「新增策略」：焦点入窗、Escape 关闭、焦点归还', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/policies`, { waitUntil: 'networkidle' })
+
+    const trigger = page.getByRole('button', { name: '新增策略', exact: true })
+    await trigger.focus()
+    await trigger.click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect((await activeInfo(page)).testid).toBe('edit-policy-code')
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    expect((await activeInfo(page)).text).toBe('新增策略')
+  })
+
+  test('REAL · 策略弹窗：下拉展开时 Esc 只收起下拉，不关窗、不丢输入', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/policies`, { waitUntil: 'networkidle' })
+
+    await page.getByRole('button', { name: '新增策略', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    // 写入一个可辨识的值，用于证明「Esc 收下拉不会连带丢掉表单内容」
+    await page.getByTestId('edit-policy-code').fill('probe-esc-keep')
+
+    const elSelect = dialog.locator('.el-select').first()
+    await expect(elSelect).toBeVisible()
+    await elSelect.click()
+    // Element Plus 打开下拉会在控件上标 aria-expanded=true
+    await expect(dialog.locator('[aria-expanded="true"]').first()).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    // 弹窗必须仍在（修复前捕获阶段直接关窗，用户输入全部丢失）
+    await expect(dialog).toBeVisible()
+    await expect(page.getByTestId('edit-policy-code')).toHaveValue('probe-esc-keep')
+
+    // 下拉已收起后，再按 Esc 才关闭弹窗
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+  })
+
+  test('CONTRACT · 身份源管理：新增/删除弹窗可键盘操作（真实账号缺该权限码）', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    const envelope = (data: unknown) => ({ code: 0, msg: 'ok', data })
+    await page.route('**/api/iam/user/profile**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          envelope({
+            user: { id: 1, username: 'admin', nickname: '管理员' },
+            tenants: [{ id: 3, name: '验证租户', code: 'v3', domain: 'localhost' }],
+            current_tenant_id: 3,
+            is_admin: true,
+            permissions: [
+              'iam:identity_source:view',
+              'iam:identity_source:save',
+              'iam:identity_source:detail',
+              'iam:identity_source:delete',
+              'iam:identity_source:test',
+              'iam:identity_source:toggle',
+            ],
+            must_select_tenant: false,
+          }),
+        ),
+      }),
+    )
+    await page.route('**/api/iam/identity_source/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          envelope([
+            {
+              id: 7,
+              name: 'corp-ldap',
+              type: 'ldap',
+              enabled: true,
+              ldap: {
+                url: 'ldap://ldap.corp.local:389',
+                base_dn: 'dc=corp',
+                bind_dn: 'cn=svc',
+                username_attribute: 'uid',
+                mail_attribute: 'mail',
+              },
+            },
+          ]),
+        ),
+      }),
+    )
+
+    await page.goto(`${BASE_URL}/console/identity-sources`, { waitUntil: 'networkidle' })
+    await expect(page).toHaveURL(/\/console\/identity-sources$/)
+
+    // 新增弹窗：焦点入窗 + Escape 关闭 + 焦点归还
+    const addBtn = page.getByRole('button', { name: '新增身份源', exact: true })
+    await addBtn.first().focus()
+    await addBtn.first().click()
+    const form = page.getByRole('dialog')
+    await expect(form).toBeVisible()
+    await expect(form).toHaveAttribute('aria-modal', 'true')
+    expect((await activeInfo(page)).testid).toBe('form-name')
+    await page.keyboard.press('Escape')
+    await expect(form).toHaveCount(0)
+
+    // 删除弹窗：首焦点为取消
+    const delBtn = page.getByRole('button', { name: '删除', exact: true }).first()
+    await delBtn.focus()
+    await delBtn.click()
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toBeVisible()
+    expect((await activeInfo(page)).text).toBe('取消')
+    await page.keyboard.press('Escape')
+    await expect(confirm).toHaveCount(0)
   })
 })

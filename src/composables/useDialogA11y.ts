@@ -64,8 +64,15 @@ export function useDialogA11y(
     const preferred = options.initialFocus
       ? root.querySelector<HTMLElement>(options.initialFocus)
       : root.querySelector<HTMLElement>(PREFERRED_SELECTOR)
-    const target = preferred ?? focusables()[0] ?? root
-    target.focus()
+    focusEl(preferred ?? focusables()[0] ?? root)
+  }
+
+  /** 让任意元素可聚焦并聚焦（容器本身没有 tabindex 时补一个，避免 focus() 静默失效） */
+  function focusEl(el: HTMLElement): void {
+    if (!el.hasAttribute('tabindex') && el === dialogRef.value) {
+      el.setAttribute('tabindex', '-1')
+    }
+    el.focus()
   }
 
   function onKeydown(event: KeyboardEvent): void {
@@ -74,6 +81,13 @@ export function useDialogA11y(
     if (!root) return
 
     if (event.key === 'Escape') {
+      // 弹窗内若有「展开中的浮层」（Element Plus el-select / 下拉等以 aria-expanded=true
+      // 标记），首次 Esc 只应收起该浮层，不能连带把整个弹窗关掉——否则用户输入的表单
+      // 内容会凭空丢失。此处直接放行，交给浮层自己的 Esc 处理。
+      const target = event.target as HTMLElement | null
+      if (target?.closest?.('[aria-expanded="true"]')) return
+      // 已被其它组件（如命令面板在 window 捕获阶段）处理过的 Esc 不再重复关窗
+      if (event.defaultPrevented) return
       // 捕获阶段拦截：避免同一次 Esc 既关闭弹窗又被页面其他监听消费
       event.preventDefault()
       event.stopPropagation()
@@ -87,7 +101,7 @@ export function useDialogA11y(
     if (items.length === 0) {
       // 无可聚焦元素时把焦点留在弹窗容器上，不落回背景
       event.preventDefault()
-      root.focus()
+      focusEl(root)
       return
     }
 
@@ -116,9 +130,13 @@ export function useDialogA11y(
         focusInitial()
       } else {
         document.removeEventListener('keydown', onKeydown, true)
-        await nextTick()
-        if (restoreTarget && restoreTarget.isConnected) restoreTarget.focus()
+        // 先把归还目标取出来并清空：await 之后若又打开了新弹窗，
+        // 不能把焦点从新弹窗抢回上一个触发按钮（关→立刻重开的竞态）。
+        const target = restoreTarget
         restoreTarget = null
+        await nextTick()
+        if (options.open.value) return
+        if (target && target.isConnected) target.focus()
       }
     },
     { immediate: true },

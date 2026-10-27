@@ -39,6 +39,7 @@ import { contractText, formatContractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import PolicyStatementsEditor from "@/components/policies/PolicyStatementsEditor.vue";
 import { useCan } from "@/composables/useCan";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_POLICY } from "@/config/permission-codes";
 
 const store = usePolicyListStore();
@@ -313,6 +314,17 @@ function closeDelete(): void {
   deleteBlocked.value = "";
 }
 
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const editDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(editDialogRef, { open: showEdit, onClose: closeEdit });
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
+  initialFocus: "[data-dialog-cancel]",
+});
+
 // ---- 状态迁移渲染辅助 ----
 const isError = computed(
   () => store.error !== null && store.items.length === 0,
@@ -451,13 +463,20 @@ const isEmpty = computed(
     <!-- 新增/编辑 Dialog（AC-2/AC-3）-->
     <div v-if="showEdit" class="dialog-overlay" @click.self="closeEdit">
       <div
+        ref="editDialogRef"
         class="dialog dialog--wide"
         role="dialog"
+        aria-modal="true"
         :aria-label="editMode === 'create' ? '新增策略' : '编辑策略'"
       >
         <header class="dialog__head">
           <h3>{{ editMode === "create" ? "新增策略" : "编辑策略" }}</h3>
-          <button type="button" class="btn btn--text" @click="closeEdit">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeEdit"
+          >
             ✕
           </button>
         </header>
@@ -552,18 +571,26 @@ const isEmpty = computed(
     <!-- 删除确认 Dialog（E11 依赖删除被拒 → 绑定角色数提示、确认置灰） -->
     <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
       <div
+        ref="deleteDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
+        aria-describedby="delete-policy-desc"
         :aria-label="`删除策略 ${deleteTarget.name}`"
       >
         <header class="dialog__head">
           <h3>删除策略</h3>
-          <button type="button" class="btn btn--text" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDelete"
+          >
             ✕
           </button>
         </header>
         <div class="dialog__body">
-          <p>
+          <p id="delete-policy-desc">
             确认删除策略 <strong>{{ deleteTarget.name }}</strong
             >？此操作不可撤销。
           </p>
@@ -573,7 +600,12 @@ const isEmpty = computed(
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDelete"
+          >
             取消
           </button>
           <button
@@ -793,6 +825,11 @@ const isEmpty = computed(
     justify-content: space-between;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border-subtle);
+    // 弹窗内部滚动时标题与 ✕ 吸顶（策略表单较长，1440 下也要滚才能看到保存）
+    position: sticky;
+    top: 0;
+    background: var(--bg-elevated);
+    z-index: 1;
     h3 {
       margin: 0;
       font-size: 16px;

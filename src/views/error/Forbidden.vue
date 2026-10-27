@@ -49,14 +49,22 @@ const requiredCodes = computed(() =>
   justify-content: center;
   gap: 8px;
   color: var(--text-primary);
+  /* 水平内边距：窄屏（≤560）原先段落 0..viewport 全宽贴边、长句折两行；
+     全宽度生效不会影响桌面居中（flex 居中 + max-width 兜底），故不加媒体查询 */
+  padding: 16px;
+  box-sizing: border-box;
 }
 .forbidden-codes {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 13px;
   color: var(--accent-blue);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 .forbidden-hint {
   font-size: 12px;
   color: var(--text-secondary);
+  max-width: 560px;
+  text-align: center;
 }
 </style>

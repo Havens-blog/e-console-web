@@ -484,6 +484,7 @@ function userCount(code: string): string {
         class="dialog dialog--sm"
         role="alertdialog"
         aria-modal="true"
+        aria-describedby="delete-role-desc"
         :aria-label="`删除角色 ${deleteTarget.name}`"
       >
         <header class="dialog__head">
@@ -498,7 +499,7 @@ function userCount(code: string): string {
           </button>
         </header>
         <div class="dialog__body">
-          <p>
+          <p id="delete-role-desc">
             确认删除角色 <strong>{{ deleteTarget.name }}</strong
             >？此操作不可撤销。
           </p>
@@ -745,6 +746,11 @@ function userCount(code: string): string {
     justify-content: space-between;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border-subtle);
+    // 弹窗内部滚动时标题与 ✕ 吸顶，避免滚出可视区后无关闭入口
+    position: sticky;
+    top: 0;
+    background: var(--bg-elevated);
+    z-index: 1;
     h3 {
       margin: 0;
       font-size: 16px;

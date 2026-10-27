@@ -28,6 +28,7 @@ import { ApiError, type IdentitySource } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_IDENTITY_SOURCE } from "@/config/permission-codes";
 
 const store = useIdpListStore();
@@ -286,6 +287,17 @@ function closeDelete(): void {
   deleteBlocked.value = "";
 }
 
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const formDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(formDialogRef, { open: showForm, onClose: closeForm });
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
+  initialFocus: "[data-dialog-cancel]",
+});
+
 // ---- 状态迁移渲染辅助 ----
 const isError = computed(
   () => store.error !== null && store.items.length === 0,
@@ -380,13 +392,20 @@ const isEmpty = computed(
     <!-- 新增/编辑 Dialog（6 字段连接参数表单） -->
     <div v-if="showForm" class="dialog-overlay" @click.self="closeForm">
       <div
+        ref="formDialogRef"
         class="dialog"
         role="dialog"
+        aria-modal="true"
         :aria-label="formMode === 'create' ? '新增身份源' : '编辑身份源'"
       >
         <header class="dialog__head">
           <h3>{{ formMode === "create" ? "新增身份源" : "编辑身份源" }}</h3>
-          <button type="button" class="btn btn--text" @click="closeForm">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeForm"
+          >
             ✕
           </button>
         </header>
@@ -614,18 +633,26 @@ const isEmpty = computed(
     <!-- 删除确认 Dialog -->
     <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
       <div
+        ref="deleteDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
+        aria-describedby="delete-idp-desc"
         :aria-label="`删除身份源 ${deleteTarget.name}`"
       >
         <header class="dialog__head">
           <h3>删除身份源</h3>
-          <button type="button" class="btn btn--text" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDelete"
+          >
             ✕
           </button>
         </header>
         <div class="dialog__body">
-          <p>
+          <p id="delete-idp-desc">
             确认删除身份源 <strong>{{ deleteTarget.name }}</strong
             >？此操作不可撤销。
           </p>
@@ -634,7 +661,12 @@ const isEmpty = computed(
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDelete"
+          >
             取消
           </button>
           <button
@@ -850,6 +882,11 @@ const isEmpty = computed(
     justify-content: space-between;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border-subtle);
+    // 弹窗内部滚动时标题与 ✕ 吸顶，避免滚出可视区后无关闭入口
+    position: sticky;
+    top: 0;
+    background: var(--bg-elevated);
+    z-index: 1;
     h3 {
       margin: 0;
       font-size: 16px;

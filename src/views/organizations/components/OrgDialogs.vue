@@ -376,6 +376,7 @@ useDialogA11y(deleteDialogRef, {
       class="dialog dialog--sm"
       role="alertdialog"
       aria-modal="true"
+      aria-describedby="delete-org-desc"
       :aria-label="`删除组织 ${deleteTarget.name}`"
     >
       <header class="dialog__head">
@@ -390,7 +391,7 @@ useDialogA11y(deleteDialogRef, {
         </button>
       </header>
       <div class="dialog__body">
-        <p>
+        <p id="delete-org-desc">
           确认删除组织 <strong>{{ deleteTarget.name }}</strong
           >？此操作不可撤销。
         </p>
