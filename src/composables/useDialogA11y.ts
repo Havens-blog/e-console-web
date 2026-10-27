@@ -36,6 +36,13 @@ const FOCUSABLE_SELECTOR = [
 /** 首选初始焦点：表单类弹窗应直接落在第一个输入项，而非右上角 ✕ */
 const PREFERRED_SELECTOR = 'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
 
+/**
+ * 关闭时若原触发元素已消失（删除成功后整行被移除），按此顺序找落点。
+ * 优先页标题：读屏会读出「角色管理」这类位置信息，比落回 body 更可理解；
+ * 再退到主内容区，最后才放弃（放弃时焦点留在 body，等同修复前行为）。
+ */
+const DEFAULT_FALLBACK_SELECTORS = ['.page-title', '.page-head', '[role="main"]', 'main', '.layout-content']
+
 export interface DialogA11yOptions {
   /** 弹窗开关（普通 ref 或 computed 均可） */
   open: Readonly<Ref<boolean>>
@@ -43,6 +50,11 @@ export interface DialogA11yOptions {
   onClose: () => void
   /** 覆盖初始焦点选择器（默认首个输入控件） */
   initialFocus?: string
+  /**
+   * 关闭时还原焦点的兜底选择器：触发元素已被移除（例如删除成功后整行消失）时使用。
+   * 不传则按 DEFAULT_FALLBACK_SELECTORS 逐个尝试。
+   */
+  fallbackFocus?: string
 }
 
 export function useDialogA11y(
@@ -51,6 +63,8 @@ export function useDialogA11y(
 ): void {
   /** 打开前的焦点元素，关闭时归还 */
   let restoreTarget: HTMLElement | null = null
+  // 背景隔离的还原函数（关闭弹窗时调用；无背景可隔离时为 null）
+  let releaseBackground: (() => void) | null = null
 
   function focusables(): HTMLElement[] {
     const root = dialogRef.value
@@ -73,6 +87,27 @@ export function useDialogA11y(
       el.setAttribute('tabindex', '-1')
     }
     el.focus()
+  }
+
+  /**
+   * 触发元素已消失时的兜底落点。
+   * 实测：删除成功后整行被移除，原「删除」按钮 isConnected=false，
+   * 焦点落回 <body>，按 Tab 也停在 body —— 键盘用户彻底失去位置。
+   */
+  function focusFallback(): void {
+    const selectors = options.fallbackFocus
+      ? [options.fallbackFocus]
+      : DEFAULT_FALLBACK_SELECTORS
+    for (const selector of selectors) {
+      const el = document.querySelector<HTMLElement>(selector)
+      if (!el) continue
+      // 兜底落点通常是标题/容器，本身不可聚焦 → 补 tabindex=-1
+      if (!el.hasAttribute('tabindex') && el.tabIndex < 0) {
+        el.setAttribute('tabindex', '-1')
+      }
+      el.focus()
+      return
+    }
   }
 
   function onKeydown(event: KeyboardEvent): void {
@@ -127,6 +162,7 @@ export function useDialogA11y(
         document.addEventListener('keydown', onKeydown, true)
         // 等 v-if 真正渲染出弹窗节点再取焦点目标
         await nextTick()
+        releaseBackground = dialogRef.value ? isolateBackground(dialogRef.value) : null
         focusInitial()
       } else {
         document.removeEventListener('keydown', onKeydown, true)
@@ -136,7 +172,12 @@ export function useDialogA11y(
         restoreTarget = null
         await nextTick()
         if (options.open.value) return
+        releaseBackground?.()
+        releaseBackground = null
+        // 触发元素可能已随数据消失（删除成功后整行被移除）：
+        // 此时若只判断 isConnected，焦点会落回 <body>，键盘/读屏用户丢失位置。
         if (target && target.isConnected) target.focus()
+        else focusFallback()
       }
     },
     { immediate: true },
@@ -144,5 +185,50 @@ export function useDialogA11y(
 
   onBeforeUnmount(() => {
     document.removeEventListener('keydown', onKeydown, true)
+    releaseBackground?.()
+    releaseBackground = null
   })
+}
+
+/**
+ * 背景隔离：弹窗打开时，把「弹窗所在链路之外的兄弟节点」标记为 inert + aria-hidden。
+ *
+ * 为什么需要：焦点陷阱只解决 Tab 键，管不住读屏虚拟光标。实测弹窗打开时
+ * 背景仍有 35 个可聚焦元素能被脚本聚焦（activeElement 一度落在侧栏 logo 上），
+ * 读屏用户可以「读穿」弹窗继续浏览后面的页面。
+ *
+ * 为什么沿祖先链逐层标记：弹窗可能渲染在组件树任意层级（也可能被 Teleport 到 body）。
+ * 只标记 body 的直接子节点会漏；把祖先链一起标记又会隔离掉弹窗自身。
+ * 逐层「跳过自己在链上的那个子节点、标记其余兄弟」可同时覆盖两种情况且不误伤。
+ *
+ * 返回还原函数：关闭时按原值恢复（原本就有 aria-hidden 的保留其原值），
+ * 且跳过已被他人标记 inert 的节点，避免解除别人的隔离。
+ */
+function isolateBackground(root: HTMLElement): (() => void) | null {
+  if (!root.isConnected) return null
+  const changed: Array<{ el: HTMLElement; prevAria: string | null }> = []
+
+  let node: HTMLElement | null = root
+  while (node && node !== document.body && node.parentElement) {
+    const parent: HTMLElement = node.parentElement
+    for (const sibling of Array.from(parent.children)) {
+      if (sibling === node) continue
+      if (!(sibling instanceof HTMLElement)) continue
+      // 已是 inert 的不接管，避免关闭时把别人的隔离解除掉
+      if (sibling.hasAttribute('inert')) continue
+      changed.push({ el: sibling, prevAria: sibling.getAttribute('aria-hidden') })
+      sibling.setAttribute('inert', '')
+      sibling.setAttribute('aria-hidden', 'true')
+    }
+    node = parent
+  }
+
+  if (changed.length === 0) return null
+  return () => {
+    for (const { el, prevAria } of changed) {
+      el.removeAttribute('inert')
+      if (prevAria === null) el.removeAttribute('aria-hidden')
+      else el.setAttribute('aria-hidden', prevAria)
+    }
+  }
 }

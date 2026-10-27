@@ -74,6 +74,15 @@ function changePage(p: number): void {
   void store.fetch();
 }
 
+/**
+ * 切换每页条数：store.setPageSize 只改状态、不发起请求，
+ * 只调它的话选择器变了但列表不动（用户/角色/策略三页同样存在该问题，本轮一并修）。
+ */
+function changePageSize(size: number): void {
+  store.setPageSize(size);
+  void store.fetch();
+}
+
 // ---- 列表加载 ----
 async function reload(): Promise<void> {
   await Promise.all([store.fetchVocab(), store.fetch()]);
@@ -226,6 +235,12 @@ const hasActiveFilters = computed(() => store.keyword !== "");
       </button>
     </header>
 
+    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
+         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到「正在加载」信息。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{ store.loading ? "正在加载授权列表…" : "" }}
+    </p>
+
     <!-- 词表来源版本标注（G-5 降级）-->
     <p v-if="store.vocab" class="muted vocab-source">
       词表来源：{{ store.vocab.source }}
@@ -342,6 +357,20 @@ const hasActiveFilters = computed(() => store.keyword !== "");
       >
         下一页
       </button>
+      <!-- 页大小：与其余列表页（用户/角色/策略）保持一致；缺它时本页只能 20 条一页 -->
+      <select
+        :value="store.pageSize"
+        class="input pagination__size"
+        data-testid="auth-page-size"
+        aria-label="每页条数"
+        @change="
+          changePageSize(Number(($event.target as HTMLSelectElement).value))
+        "
+      >
+        <option :value="20">20 条/页</option>
+        <option :value="50">50 条/页</option>
+        <option :value="100">100 条/页</option>
+      </select>
     </nav>
 
     <!-- aria-live 播报区（撤销 pending 时变信息；时变信息不以纯视觉传达） -->
@@ -530,6 +559,19 @@ const hasActiveFilters = computed(() => store.keyword !== "");
   font-weight: 600;
 }
 
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .vocab-source {
   font-size: 12px;
 }
@@ -606,7 +648,8 @@ const hasActiveFilters = computed(() => store.keyword !== "");
   overflow-x: auto;
   background: var(--bg-elevated);
   border-radius: 8px;
-  min-height: 120px;
+  /* 与骨架实测高度（5 行 ≈ 248px）对齐：加载中/小数据量两态同高，避免整页跳动 */
+  min-height: 248px;
 }
 
 .data-table {
@@ -676,6 +719,10 @@ const hasActiveFilters = computed(() => store.keyword !== "");
   &__info {
     color: var(--text-regular);
     font-size: 13px;
+  }
+  &__size {
+    width: auto;
+    height: 32px;
   }
 }
 

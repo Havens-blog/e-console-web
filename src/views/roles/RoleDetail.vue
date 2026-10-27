@@ -364,7 +364,7 @@ useErrorReveal(saveError, saveErrorRef);
             data-testid="detail-role-name"
             :disabled="!canEditRole"
           />
-          <span class="muted">1–64 字符，租户内唯一（eiam 校验）</span>
+          <span class="muted">1–64 字符，租户内唯一（保存时校验）</span>
         </label>
         <label class="field">
           <span class="field__label">描述</span>
@@ -385,8 +385,8 @@ useErrorReveal(saveError, saveErrorRef);
       <fieldset class="form-section">
         <legend>策略绑定</legend>
         <p class="muted">
-          仅列 eiam 返回的可绑定策略；本页不提供策略新建/编辑/删除入口。
-          绑定变更需持有 iam:policy:batch_attach / batch_detach。
+          仅列当前可绑定的策略；本页不提供策略的新建/编辑/删除入口。
+          绑定变更需具备权限码 iam:policy:batch_attach / batch_detach。
         </p>
         <div v-if="canManagePolicyBind" class="checkbox-group">
           <label

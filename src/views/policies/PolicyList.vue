@@ -71,6 +71,15 @@ function changePage(p: number): void {
   void store.fetch();
 }
 
+/**
+ * 切换每页条数：store.setPageSize 只改状态、不发起请求，
+ * 原先模板里直接调它 → 选择器看起来变了但列表没变（实测 0 次请求）。
+ */
+function changePageSize(size: number): void {
+  store.setPageSize(size);
+  void store.fetch();
+}
+
 // ---- 列表加载 ----
 async function reload(): Promise<void> {
   await store.fetch();
@@ -350,6 +359,12 @@ const hasActiveFilters = computed(() => store.keyword !== "");
       </button>
     </header>
 
+    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
+         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到「正在加载」信息。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{ store.loading ? "正在加载策略列表…" : "" }}
+    </p>
+
     <!-- 搜索栏 -->
     <div class="toolbar">
       <input
@@ -469,8 +484,10 @@ const hasActiveFilters = computed(() => store.keyword !== "");
       <select
         :value="store.pageSize"
         class="input pagination__size"
+        data-testid="policy-page-size"
+        aria-label="每页条数"
         @change="
-          store.setPageSize(Number(($event.target as HTMLSelectElement).value))
+          changePageSize(Number(($event.target as HTMLSelectElement).value))
         "
       >
         <option :value="20">20 条/页</option>
@@ -663,6 +680,19 @@ const hasActiveFilters = computed(() => store.keyword !== "");
   font-weight: 600;
 }
 
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .toolbar {
   display: flex;
   gap: 8px;
@@ -755,7 +785,8 @@ const hasActiveFilters = computed(() => store.keyword !== "");
   overflow-x: auto;
   background: var(--bg-elevated);
   border-radius: 8px;
-  min-height: 120px;
+  /* 与骨架实测高度（5 行 ≈ 248px）对齐：加载中/小数据量两态同高，避免整页跳动 */
+  min-height: 248px;
 }
 
 .data-table {

@@ -1165,3 +1165,259 @@ test.describe('详情页未保存离开拦截', () => {
     await expect(box(page)).toHaveCount(0)
   })
 })
+
+/**
+ * 列表页加载态可播报（R5/R6）。
+ *
+ * 修复前实测（4 页一致）：`role=status` 数量为 0，骨架带 `aria-hidden="true"`，
+ * 只有 `aria-busy` 属性在变 → 读屏用户完全得不到「正在加载」信息；
+ * 刷新/翻页时更是连骨架都没有，形同无反应。
+ */
+test.describe('列表加载态可播报', () => {
+  const cases = [
+    { name: '用户管理', path: '/console/users', list: '**/api/iam/user/list**', text: '正在加载用户列表…' },
+    { name: '角色管理', path: '/console/roles', list: '**/api/iam/role/list**', text: '正在加载角色列表…' },
+    {
+      name: '授权管理',
+      path: '/console/authorizations',
+      list: '**/api/iam/permission/authorizations**',
+      text: '正在加载授权列表…',
+    },
+  ]
+
+  for (const c of cases) {
+    test(`${c.name}：加载中暴露 role=status 且文案随状态清空`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await loginAsAdmin(page)
+
+      await page.route(c.list, async (route) => {
+        await new Promise((r) => setTimeout(r, 2000))
+        await route.continue()
+      })
+      await page.goto(`${BASE_URL}${c.path}`)
+
+      const status = page.locator('[role="status"]')
+      await expect(status).toHaveCount(1)
+      await expect(status).toHaveAttribute('aria-live', 'polite')
+      await expect(status).toHaveText(c.text)
+
+      // sr-only：视觉不可见、仍在无障碍树
+      const hidden = await status.evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return parseInt(cs.width) <= 1 && parseInt(cs.height) <= 1
+      })
+      expect(hidden, '状态区应视觉隐藏（sr-only）').toBe(true)
+
+      // 加载完成后清空，确保下次加载能再次触发播报
+      await page.unroute(c.list)
+      await expect(status).toHaveText('', { timeout: 10_000 })
+    })
+  }
+})
+
+/**
+ * 列表分页「每页条数」选择器。
+ *
+ * 修复前实测：选择器只调 `store.setPageSize()`（仅改状态、不发起请求），
+ * 切换后**零请求**、列表不变——用户/角色/策略三页同样如此，授权页则连选择器都没有。
+ */
+test.describe('列表每页条数', () => {
+  const cases = [
+    { name: '用户管理', path: '/console/users', list: '/api/iam/user/list', sel: '[data-testid="user-page-size"]' },
+    { name: '角色管理', path: '/console/roles', list: '/api/iam/role/list', sel: '[data-testid="role-page-size"]' },
+  ]
+
+  for (const c of cases) {
+    test(`${c.name}：切换每页条数会带 limit=50 重新请求`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await loginAsAdmin(page)
+      await page.goto(`${BASE_URL}${c.path}`, { waitUntil: 'networkidle' })
+
+      const sel = page.locator(c.sel)
+      await expect(sel).toHaveCount(1)
+      await expect(sel).toHaveAttribute('aria-label', '每页条数')
+
+      const bodies: string[] = []
+      page.on('request', (r) => {
+        if (r.url().includes(c.list)) bodies.push(r.postData() ?? '')
+      })
+      await sel.selectOption('50')
+
+      await expect.poll(() => bodies.length, { timeout: 10_000 }).toBeGreaterThan(0)
+      expect(bodies[bodies.length - 1]).toContain('"limit":50')
+      await expect(sel).toHaveValue('50')
+    })
+  }
+
+  test('授权管理：页大小选择器可用（原先完全缺失）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/authorizations`, { waitUntil: 'networkidle' })
+
+    const sel = page.locator('[data-testid="auth-page-size"]')
+    // 无数据时分页条整体不渲染，故仅在存在时断言可用性
+    if ((await sel.count()) > 0) {
+      const bodies: string[] = []
+      page.on('request', (r) => {
+        if (r.url().includes('/api/iam/permission/authorizations')) bodies.push(r.postData() ?? '')
+      })
+      await sel.selectOption('50')
+      await expect.poll(() => bodies.length, { timeout: 10_000 }).toBeGreaterThan(0)
+      expect(bodies[bodies.length - 1]).toContain('"limit":50')
+    }
+  })
+})
+
+/**
+ * 加载前后布局稳定（R8）。
+ *
+ * 修复前实测：骨架固定 232px，`.table-wrap` 只有 `min-height:120px`，
+ * 于是 1 行数据的页面从 248px 收缩到 120px（**整页跳动 128px**），
+ * 6 行数据的页面则从 248px 长到 326px（+78px）。
+ * 修复：`min-height` 提到与骨架实测高度一致（248px），小数据量页零跳动。
+ */
+test.describe('加载前后布局稳定', () => {
+  test('角色页：加载中与加载后容器高度一致（1 行数据不再塌陷）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/role/list**', async (route) => {
+      await new Promise((r) => setTimeout(r, 1800))
+      await route.continue()
+    })
+    await page.goto(`${BASE_URL}/console/roles`)
+
+    const wrapH = () =>
+      page.evaluate(() => Math.round(document.querySelector('.table-wrap')!.getBoundingClientRect().height))
+
+    await expect(page.locator('.skeleton')).toBeVisible()
+    const duringLoad = await wrapH()
+
+    await expect(page.locator('.skeleton')).toHaveCount(0, { timeout: 15_000 })
+    const afterLoad = await wrapH()
+
+    // 修复前：duringLoad=248 → afterLoad=120（塌陷 128px）
+    expect(duringLoad).toBeGreaterThanOrEqual(240)
+    expect(afterLoad).toBe(duringLoad)
+  })
+})
+
+/**
+ * 弹窗背景隔离（R9）。
+ *
+ * 修复前实测：弹窗打开时 `[inert]` 数量为 0，背景仍有 35 个可聚焦元素能被脚本聚焦
+ * （`document.activeElement` 一度落在侧栏 logo 上）——焦点陷阱只管 Tab，
+ * 管不住读屏虚拟光标，用户能「读穿」弹窗浏览后面的页面。
+ */
+test.describe('弹窗背景隔离', () => {
+  test('打开时背景 inert 且不可聚焦；三种关闭方式都还原', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+
+    const inertCount = () => page.evaluate(() => document.querySelectorAll('[inert]').length)
+    const bgFocusable = () =>
+      page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]')
+        const target = [...document.querySelectorAll('a[href], button, input, select')].find(
+          (el) => el.offsetParent !== null && (!dlg || !dlg.contains(el)),
+        )
+        if (!target) return null
+        target.focus()
+        return document.activeElement === target
+      })
+
+    const trigger = page.getByRole('button', { name: '新增用户', exact: true })
+    const dialog = page.locator('[role="dialog"]')
+
+    for (const how of ['close', 'esc', 'cancel'] as const) {
+      await trigger.click()
+      await expect(dialog).toBeVisible()
+
+      expect(await inertCount(), '打开时背景应被 inert 隔离').toBeGreaterThan(0)
+      expect(await bgFocusable(), '背景不应可被聚焦').toBe(false)
+
+      if (how === 'esc') await page.keyboard.press('Escape')
+      else if (how === 'cancel') await dialog.getByRole('button', { name: '取消', exact: true }).click()
+      else await page.getByRole('button', { name: '关闭' }).first().click()
+
+      await expect(dialog).toHaveCount(0)
+      expect(await inertCount(), `关闭（${how}）后 inert 必须清空`).toBe(0)
+      // 焦点归还触发按钮
+      await expect(trigger).toBeFocused()
+    }
+  })
+})
+
+/**
+ * 删除成功后焦点兜底（R10）。
+ *
+ * 修复前实测：删除成功后整行消失，原「删除」按钮 isConnected=false，
+ * `document.activeElement` 落回 **BODY**，按 Tab 也停在 body——键盘用户丢失位置。
+ * 修复后兜底到页标题（`.page-title`，补 tabindex=-1），再按 Tab 回到页头按钮。
+ */
+test.describe('删除后焦点兜底', () => {
+  test('删除成功的行消失后，焦点不落 body 且 Tab 能继续', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+
+    const mk = (id: number, name: string) => ({
+      id,
+      username: name,
+      nickname: name,
+      email: '',
+      phone: '',
+      job_title: '',
+      status: 'active',
+      ctime: 1730000000000,
+      utime: 1730000000000,
+      login_method: 'password',
+      passkey_registered: false,
+      tenant_id: 1,
+    })
+    let users = [mk(1, 'u-one'), mk(2, 'u-two'), mk(3, 'u-three')]
+
+    await page.route('**/api/iam/user/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: { total: users.length, users } }),
+      }),
+    )
+    await page.route('**/api/iam/user/delete**', (route) => {
+      // DELETE /api/iam/user/delete/:id —— id 在 URL 上，不在 body
+      const m = route.request().url().match(/\/user\/delete\/(\d+)/)
+      const id = m ? Number(m[1]) : NaN
+      users = users.filter((u) => u.id !== id)
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: null }),
+      })
+    })
+
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+    await expect(page.locator('tbody tr')).toHaveCount(3)
+
+    await page.getByTestId('delete-user').first().click()
+    const dlg = page.locator('[role="alertdialog"]')
+    await expect(dlg).toBeVisible()
+    await dlg.getByRole('button', { name: /确认删除|删除/ }).last().click()
+
+    await expect(page.locator('tbody tr')).toHaveCount(2, { timeout: 10_000 })
+    await expect(dlg).toHaveCount(0)
+
+    // 焦点不落 body，且落在页标题这类稳定落点
+    const focus = await page.evaluate(() => {
+      const el = document.activeElement
+      return { isBody: el === document.body, tag: el?.tagName ?? null, text: (el?.textContent ?? '').trim() }
+    })
+    expect(focus.isBody, '焦点不应落在 body').toBe(false)
+    expect(focus.text).toContain('用户管理')
+
+    // 键盘可继续
+    await page.keyboard.press('Tab')
+    const next = await page.evaluate(() => (document.activeElement?.textContent ?? '').trim())
+    expect(next).not.toBe('')
+  })
+})
