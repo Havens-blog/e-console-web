@@ -397,11 +397,14 @@ useDialogA11y(deleteDialogRef, {
               <StatusBadge :status="u.status" size="sm" />
             </td>
             <td>
+              <!-- 行内按钮加带行标识的可访问名：表格里每行都是「编辑/删除」，
+                   读屏若不带上用户名只会连续念「编辑 按钮」×N，无法分辨是哪一行。 -->
               <button
                 v-if="can(IAM_USER.EDIT)"
                 type="button"
                 class="btn btn--text"
                 data-testid="edit-user"
+                :aria-label="`编辑用户 ${u.username}`"
                 @click="gotoDetail(u.id)"
               >
                 编辑
@@ -411,6 +414,7 @@ useDialogA11y(deleteDialogRef, {
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="delete-user"
+                :aria-label="`删除用户 ${u.username}`"
                 @click="openDelete(u.id, u.username)"
               >
                 删除
@@ -420,6 +424,7 @@ useDialogA11y(deleteDialogRef, {
                 type="button"
                 class="btn btn--text"
                 data-testid="view-user"
+                :aria-label="`查看用户 ${u.username}`"
                 @click="gotoDetail(u.id)"
               >
                 查看

@@ -449,7 +449,8 @@ test.describe('弹窗可访问性 · 第二批页面', () => {
     await loginAsAdmin(page)
     await page.goto(`${BASE_URL}/console/authorizations`, { waitUntil: 'networkidle' })
 
-    const revokeBtn = page.getByRole('button', { name: '撤销', exact: true }).first()
+    // 可访问名现在带行标识（如「撤销 admin 对 admin 的 assign 授权」），故用正则而非 exact
+    const revokeBtn = page.getByRole('button', { name: /^撤销 / }).first()
     await revokeBtn.focus()
     await revokeBtn.click()
 
@@ -586,8 +587,8 @@ test.describe('弹窗可访问性 · 第二批页面', () => {
     await page.keyboard.press('Escape')
     await expect(form).toHaveCount(0)
 
-    // 删除弹窗：首焦点为取消
-    const delBtn = page.getByRole('button', { name: '删除', exact: true }).first()
+    // 删除弹窗：首焦点为取消（身份源行内按钮按 testid 定位，文案为「删除」）
+    const delBtn = page.getByTestId('delete-idp').first()
     await delBtn.focus()
     await delBtn.click()
     const confirm = page.getByRole('alertdialog')
@@ -1630,5 +1631,44 @@ test.describe('列表结果摘要可播报', () => {
     await expect(status).toHaveText(/没有匹配的用户/, { timeout: 15_000 })
     // 视觉空态仍在，且带「清除筛选」出口
     await expect(page.locator('.state-empty')).toContainText('没有匹配的用户')
+  })
+})
+
+/**
+ * 表格行内按钮的可访问名唯一性。
+ *
+ * 修复前实测：用户页 6 行 × 「编辑/删除」→ 各 6 个**同名**按钮、0 个 aria-label，
+ * 读屏只会连续念「编辑 按钮」「删除 按钮」，无法分辨是哪一行。
+ */
+test.describe('行内按钮可访问名', () => {
+  test('用户页：每行的编辑/删除带用户名，可访问名不重复', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+    await expect(page.locator('tbody tr').first()).toBeVisible()
+
+    const names = await page.evaluate(() =>
+      [...document.querySelectorAll('tbody button')].map(
+        (b) => b.getAttribute('aria-label') ?? '',
+      ),
+    )
+    expect(names.length).toBeGreaterThan(0)
+    // 全部都有可访问名
+    expect(names.filter((n) => n === '')).toHaveLength(0)
+    // 且互不重复
+    expect(new Set(names).size).toBe(names.length)
+  })
+
+  test('角色页：编辑/删除带角色名', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/roles`, { waitUntil: 'networkidle' })
+    await expect(page.locator('tbody tr').first()).toBeVisible()
+
+    const labels = await page.evaluate(() =>
+      [...document.querySelectorAll('tbody button')].map((b) => b.getAttribute('aria-label') ?? ''),
+    )
+    expect(labels.filter((n) => n === '')).toHaveLength(0)
+    expect(labels.some((n) => n.startsWith('编辑角色 '))).toBe(true)
   })
 })
