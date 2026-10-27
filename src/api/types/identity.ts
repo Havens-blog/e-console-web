@@ -69,6 +69,72 @@ export interface Tenant {
    * UF-6 列表页经 listTenants 归一后必填，视图层用 `?? 'unknown'` 兜底防御。
    */
   status?: "active" | "disable" | "unknown";
+
+  /**
+   * 创建时间（秒级时间戳）；缺失 / `0` 由视图显示 '—'（feat-tenant-detail-ui 契约 §2.1）。
+   * eiam TenantVO 原样出参（`ctime`），列表与详情同源；缺失不补 0（0 无展示意义）。
+   */
+  ctime?: number;
+
+  // ---- 三类治理配置（tenant-management spec 需求 2 / 6 / 7）----
+  //
+  // eiam TenantVO 原样出参（eiam/internal/web/tenant/vo.go:65-78），零值即「无约束」语义：
+  // 配额 0 = 不限制、白名单空 = 全部允许、开关空表 = 未启用差异化开关。
+  // 缺省为 undefined 仅出现在 profile tenants（UF-11 选择器，不携带治理配置）场景；
+  // tenant/list 归一后一律补齐为 0/[]/{}，避免视图层区分「无配置」与「未加载」。
+
+  /** 最大云账号数（0 = 不限制） */
+  maxAccounts?: number;
+  /** 最大用户数（0 = 不限制） */
+  maxUsers?: number;
+  /** 最大用户组数（0 = 不限制） */
+  maxUserGroups?: number;
+  /** 功能开关映射表（空表 = 未启用差异化开关） */
+  featureSwitch?: Record<string, boolean>;
+  /** 允许使用的云厂商白名单（空 = 全部允许） */
+  allowedVendors?: string[];
+
+  // ---- 用量统计（tenant-management spec 需求 5；feat-tenant-usage-stats）----
+  //
+  // 口径**故意与上方治理配置相反**：治理配置零值补齐为 0/[]/{}，计数**不补齐**。
+  // undefined = 统计不可用（后端未提供该字段 / 字段缺失），视图渲染 '—'；
+  // 0 = 真实为零（后端统计成功且该租户确实无用户 / 用户组），视图渲染 '0'。
+  // 二者展示不同（'—' vs '0'），故 api 层只有在拿到 number 时才映射，不得补 0。
+  // 云账号数（maxAccounts 的对应用量）本轮不做——属 cam 域数据（需求卡「不包含」）。
+
+  /** 该租户当前用户数（undefined = 统计不可用，0 = 真实为零，二者展示不同） */
+  userCount?: number;
+  /** 该租户当前用户组数（undefined = 统计不可用，0 = 真实为零，二者展示不同） */
+  userGroupCount?: number;
+}
+
+/**
+ * 租户成员（feat-tenant-members-ui 契约 §2.1）。
+ *
+ * 来源：`POST /api/iam/tenant/members`（跨租户读取，请求头 `X-Active-Tenant-ID`），
+ * 响应 `{total, members}` 由 api 层归一为 `Page<TenantMember>`；snake_case 原生键
+ * （job_title / last_login_at）与 status int（1/2）均在 api 层归一，不越视图层。
+ * 字段与 eiam MemberVO 一致，缺 id 的记录由 api 层过滤。
+ */
+export interface TenantMember {
+  /** 用户 id（eiam 主键；移除成员时作为 `user_id` 提交） */
+  id: number;
+  /** 登录名 */
+  username: string;
+  /** 昵称（缺失 → 空串，视图渲染 '—'） */
+  nickname: string;
+  /** 头像 URL（缺失 / 空串 → undefined） */
+  avatar?: string;
+  /** 邮箱（缺失 / 空串 → undefined） */
+  email?: string;
+  /** 成员状态（eiam status int 1/2 归一；未知 → 'unknown'，复用 normalizeTenantStatus 口径） */
+  status?: "active" | "disable" | "unknown";
+  /** 职位（eiam job_title，缺失 → undefined） */
+  jobTitle?: string;
+  /** 最近登录时间（秒级时间戳；缺失 → undefined） */
+  lastLoginAt?: number;
+  /** 创建时间（秒级时间戳；缺失 → undefined） */
+  ctime?: number;
 }
 
 /**
