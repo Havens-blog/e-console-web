@@ -242,7 +242,12 @@ useDialogA11y(deleteDialogRef, {
             createParent ? `新增子组织（${createParent.name}）` : "新增根组织"
           }}
         </h3>
-        <button type="button" class="btn btn--text" @click="closeCreate">
+        <button
+          type="button"
+          class="btn btn--text"
+          aria-label="关闭"
+          @click="closeCreate"
+        >
           ✕
         </button>
       </header>
@@ -308,7 +313,12 @@ useDialogA11y(deleteDialogRef, {
     >
       <header class="dialog__head">
         <h3>编辑组织</h3>
-        <button type="button" class="btn btn--text" @click="closeEdit">
+        <button
+          type="button"
+          class="btn btn--text"
+          aria-label="关闭"
+          @click="closeEdit"
+        >
           ✕
         </button>
       </header>
@@ -370,7 +380,12 @@ useDialogA11y(deleteDialogRef, {
     >
       <header class="dialog__head">
         <h3>删除组织</h3>
-        <button type="button" class="btn btn--text" @click="closeDelete">
+        <button
+          type="button"
+          class="btn btn--text"
+          aria-label="关闭"
+          @click="closeDelete"
+        >
           ✕
         </button>
       </header>

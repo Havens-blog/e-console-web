@@ -365,4 +365,53 @@ test.describe('弹窗键盘与焦点可访问性', () => {
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
   })
+
+  test('弹窗关闭按钮具备可访问名称（读屏不播报「乘号」）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}${USERS_PATH}`, { waitUntil: 'networkidle' })
+
+    await page.getByRole('button', { name: '新增用户', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    // 修复前按钮文本只有「✕」，无 aria-label
+    await expect(dialog.getByRole('button', { name: '关闭', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+  })
+
+  test('组织树行内动作可键盘到达，且弹窗关闭后焦点归还该动作', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}${ORGS_PATH}`, { waitUntil: 'networkidle' })
+
+    await expect(page.locator('.org-tree .tree__row').first()).toBeVisible()
+
+    // 修复前三个动作按钮 tabindex="-1" 且容器 display:none —— Tab 完全跳过，
+    // 键盘用户无法打开「新增子组织 / 编辑 / 删除」，弹窗关闭后焦点也无处可归。
+    await page.locator('.tree__row').first().focus()
+    await page.keyboard.press('Tab')
+    const firstAction = await activeInfo(page)
+    expect(firstAction.text).toBe('＋')
+    expect(firstAction.insideDialog).toBe(false)
+
+    // Tab 到「编辑」并用键盘打开
+    await page.keyboard.press('Tab')
+    expect((await activeInfo(page)).text).toBe('编辑')
+    await page.keyboard.press('Enter')
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect((await activeInfo(page)).testid).toBe('edit-org-name')
+
+    // Escape 关闭后，焦点应回到「编辑」按钮（修复前落回 BODY）
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    const restored = await activeInfo(page)
+    expect(restored.text).toBe('编辑')
+    expect(restored.tag).toBe('BUTTON')
+  })
 })

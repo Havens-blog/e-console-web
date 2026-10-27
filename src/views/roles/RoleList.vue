@@ -389,7 +389,12 @@ function userCount(code: string): string {
       >
         <header class="dialog__head">
           <h3>新增角色</h3>
-          <button type="button" class="btn btn--text" @click="closeCreate">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeCreate"
+          >
             ✕
           </button>
         </header>
@@ -483,7 +488,12 @@ function userCount(code: string): string {
       >
         <header class="dialog__head">
           <h3>删除角色</h3>
-          <button type="button" class="btn btn--text" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDelete"
+          >
             ✕
           </button>
         </header>

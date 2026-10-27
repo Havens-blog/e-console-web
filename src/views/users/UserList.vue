@@ -476,7 +476,12 @@ useDialogA11y(deleteDialogRef, {
       >
         <header class="dialog__head">
           <h3>新增用户</h3>
-          <button type="button" class="btn btn--text" @click="closeCreate">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeCreate"
+          >
             ✕
           </button>
         </header>
@@ -638,7 +643,12 @@ useDialogA11y(deleteDialogRef, {
       >
         <header class="dialog__head">
           <h3>删除用户</h3>
-          <button type="button" class="btn btn--text" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDelete"
+          >
             ✕
           </button>
         </header>
