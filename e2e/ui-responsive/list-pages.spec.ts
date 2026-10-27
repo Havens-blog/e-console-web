@@ -1001,3 +1001,56 @@ test.describe('租户管理页（CONTRACT）', () => {
     expect(m.pageOverflow).toBe(false)
   })
 })
+
+/**
+ * 用户详情「状态 → 禁用」二次确认。
+ *
+ * 修复前：`<select v-model="status">` 一选「禁用」即改本地状态，保存后账号不可登录，
+ * 既无确认也无影响说明（审计实测零提示），与列表页「危险操作先确认」的约定不一致。
+ */
+test.describe('详情页危险操作确认', () => {
+  async function openUserDetail(page: Page) {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users/1`, { waitUntil: 'networkidle' })
+    await expect(page.getByTestId('detail-status')).toBeVisible()
+  }
+
+  test('选「禁用」弹确认；取消/Esc 均回滚，确认才落地', async ({ page }) => {
+    await openUserDetail(page)
+    const select = page.getByTestId('detail-status')
+    const box = page.locator('.el-message-box')
+
+    expect(await select.inputValue()).toBe('active')
+
+    // 1) 取消 → 回滚
+    await select.selectOption('disable')
+    await expect(box).toBeVisible()
+    await expect(box).toContainText('将无法登录')
+    await box.getByRole('button', { name: '取消', exact: true }).click()
+    await expect(box).toHaveCount(0)
+    expect(await select.inputValue()).toBe('active')
+
+    // 2) Esc → 回滚
+    await select.selectOption('disable')
+    await expect(box).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(box).toHaveCount(0)
+    expect(await select.inputValue()).toBe('active')
+
+    // 3) 确认 → 落地
+    await select.selectOption('disable')
+    await expect(box).toBeVisible()
+    await box.getByRole('button', { name: '确认禁用', exact: true }).click()
+    await expect(box).toHaveCount(0)
+    expect(await select.inputValue()).toBe('disable')
+  })
+
+  test('详情页不再向用户暴露开发备注（G-2/G-3/E1、待 eiam 等）', async ({ page }) => {
+    await openUserDetail(page)
+    const text = await page.evaluate(() => document.body.innerText)
+    expect(text).not.toMatch(/G-2|G-3|reset_password/)
+    expect(text).not.toMatch(/list\/detail/)
+    expect(text).toContain('当前账号的登录方式')
+  })
+})

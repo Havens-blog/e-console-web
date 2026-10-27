@@ -22,6 +22,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElMessageBox } from "element-plus";
 import { useUserListStore } from "@/stores/userList";
 import { useUserStore } from "@/stores/user";
 import { getUserDetail, listRoles } from "@/api/users";
@@ -105,6 +106,40 @@ function toggleRole(code: string): void {
   const idx = selectedRoleCodes.value.indexOf(code);
   if (idx >= 0) selectedRoleCodes.value.splice(idx, 1);
   else selectedRoleCodes.value.push(code);
+}
+
+/**
+ * 状态切换：切到「禁用」前必须二次确认。
+ *
+ * 原先 `<select v-model="status">` 一选「禁用」即改本地状态，保存后账号直接不可登录，
+ * 既无确认也无影响说明——与列表页「危险操作先确认」的约定不一致（审计实测：零提示）。
+ * 这里拦截 change：确认才落地，取消则把 DOM 里的选中值回滚到原状态。
+ */
+async function onStatusChange(event: Event): Promise<void> {
+  const el = event.target as HTMLSelectElement;
+  const next = el.value as "active" | "disable";
+  if (next !== "disable") {
+    status.value = next;
+    return;
+  }
+  const username = user.value?.username ?? "";
+  try {
+    await ElMessageBox.confirm(
+      `禁用后「${username}」将无法登录，且其已建立的会话会在下次鉴权时失效。确认禁用？`,
+      "确认禁用账号",
+      {
+        type: "warning",
+        // 措辞显式写明动作，配合上方后果说明降低误确认风险
+        confirmButtonText: "确认禁用",
+        cancelButtonText: "取消",
+        distinguishCancelAndClose: true,
+      },
+    );
+    status.value = "disable";
+  } catch {
+    // 取消 / 关闭：回滚 DOM 选中值，本地状态保持原值
+    el.value = status.value;
+  }
 }
 
 function errorMessage(err: unknown): string {
@@ -255,17 +290,16 @@ useErrorReveal(saveError, saveErrorRef);
         <label class="field">
           <span class="field__label">登录方式</span>
           <input :value="user.loginMethod" type="text" class="input" readonly />
-          <span class="muted"
-            >list/detail 不直出，缺省 password；passkey 绑定态见下方区块</span
-          >
+          <span class="muted">当前账号的登录方式；通行密钥绑定状态见下方</span>
         </label>
         <label class="field">
           <span class="field__label">状态</span>
           <select
-            v-model="status"
+            :value="status"
             class="input"
             data-testid="detail-status"
             :disabled="!canEditUser"
+            @change="onStatusChange"
           >
             <option value="active">启用</option>
             <option value="disable">禁用</option>
@@ -348,7 +382,7 @@ useErrorReveal(saveError, saveErrorRef);
         </div>
         <div class="field">
           <span class="field__label">所属组织</span>
-          <span class="muted">—（无数据源，待 eiam 补组织 ref）</span>
+          <span class="muted">—（组织信息暂未接入用户详情）</span>
         </div>
       </fieldset>
 
@@ -367,14 +401,11 @@ useErrorReveal(saveError, saveErrorRef);
             }}</span>
           </div>
           <p class="muted passkey-hint">
-            管理员代发起 passkey 注册/撤销暂不可用（G-2/G-3，待 eiam
-            排期补齐）。 请引导用户走 eiam 既有本人自助注册流程完成绑定。
+            管理员暂不能代用户发起通行密钥的注册或撤销，请引导用户在其本人账号下完成自助绑定。
           </p>
           <p class="muted passkey-hint">
-            设备丢失重绑：撤销原绑定 → 重新引导；passkey
-            为唯一登录方式且回收时，
-            账号恢复走管理员重置密码路径（E1，reset_password 端点待 eiam
-            排期补齐，G-1）。
+            设备丢失需重绑时：由用户先撤销原绑定再重新引导；若通行密钥是唯一登录方式，
+            可通过管理员重置密码恢复账号访问。
           </p>
         </div>
       </fieldset>
