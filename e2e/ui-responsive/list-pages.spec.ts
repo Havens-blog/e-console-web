@@ -1821,3 +1821,63 @@ test.describe('页面主标题', () => {
     })
   }
 })
+
+/**
+ * 组织树叶子节点的装饰性占位不再是无名按钮。
+ *
+ * 修复前实测：叶子节点也渲染 `<button class="tree__toggle tree__toggle--leaf" aria-label="">`，
+ * 虽然 `tabindex="-1"` 不可 Tab 到，但它仍在无障碍树里 —— 读屏虚拟光标会念到一个**没有名称的按钮**。
+ * 修复后：叶子渲染为 `span[aria-hidden="true"]`（保留 16px 占位对齐），仅非叶子渲染真按钮。
+ */
+test.describe('组织树展开按钮', () => {
+  test('CONTRACT · 叶子为装饰 span，只有非叶子是可命名的按钮', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const envelope = (data: unknown) => ({ code: 0, msg: 'ok', data })
+
+    await page.route('**/api/iam/department/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          envelope([
+            {
+              id: 1,
+              name: '总部',
+              parent_id: 0,
+              children: [{ id: 2, name: '研发部', parent_id: 1, children: [] }],
+            },
+            { id: 3, name: '独立部门', parent_id: 0, children: [] },
+          ]),
+        ),
+      }),
+    )
+
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/organizations`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.tree__row').first()).toBeVisible()
+
+    const m = await page.evaluate(() => {
+      const toggles = [...document.querySelectorAll('.tree__toggle')]
+      const unnamed = [...document.querySelectorAll('button')].filter(
+        (b) => !(b.getAttribute('aria-label') || (b.textContent || '').trim()),
+      )
+      return {
+        rows: document.querySelectorAll('.tree__row').length,
+        buttonToggles: document.querySelectorAll('button.tree__toggle').length,
+        leafSpans: document.querySelectorAll('span.tree__toggle--leaf[aria-hidden="true"]').length,
+        labels: [...document.querySelectorAll('button.tree__toggle')].map((b) => b.getAttribute('aria-label')),
+        widths: [...new Set(toggles.map((t) => Math.round(t.getBoundingClientRect().width)))],
+        unnamedButtons: unnamed.length,
+      }
+    })
+
+    // 只有「总部」有子节点 → 只有 1 个真按钮；两个叶子是装饰 span
+    expect(m.buttonToggles).toBe(1)
+    expect(m.leafSpans).toBe(2)
+    expect(m.labels).toEqual(['折叠'])
+    // 占位宽度一致（对齐不破）
+    expect(m.widths).toEqual([16])
+    // 全页不得有无名按钮
+    expect(m.unnamedButtons, '不应存在没有可访问名的按钮').toBe(0)
+  })
+})
