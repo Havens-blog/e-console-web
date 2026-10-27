@@ -258,6 +258,12 @@ function userCount(code: string): string {
       </button>
     </header>
 
+    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
+         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到「正在加载」信息。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{ store.loading ? "正在加载角色列表…" : "" }}
+    </p>
+
     <!-- 搜索栏 -->
     <div class="toolbar">
       <input
@@ -567,6 +573,19 @@ function userCount(code: string): string {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .toolbar {

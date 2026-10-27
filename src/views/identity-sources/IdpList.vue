@@ -321,6 +321,12 @@ const isEmpty = computed(
       </button>
     </header>
 
+    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
+         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到「正在加载」信息。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{ store.loading ? "正在加载身份源列表…" : "" }}
+    </p>
+
     <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，
          避免错误态下方残留一个空表格框（原实现错误文案在框外，框内无内容） -->
     <div class="table-wrap">
@@ -709,6 +715,19 @@ const isEmpty = computed(
   margin: 0;
   font-size: 20px;
   font-weight: 600;
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .input {

@@ -1165,3 +1165,52 @@ test.describe('详情页未保存离开拦截', () => {
     await expect(box(page)).toHaveCount(0)
   })
 })
+
+/**
+ * 列表页加载态可播报（R5/R6）。
+ *
+ * 修复前实测（4 页一致）：`role=status` 数量为 0，骨架带 `aria-hidden="true"`，
+ * 只有 `aria-busy` 属性在变 → 读屏用户完全得不到「正在加载」信息；
+ * 刷新/翻页时更是连骨架都没有，形同无反应。
+ */
+test.describe('列表加载态可播报', () => {
+  const cases = [
+    { name: '用户管理', path: '/console/users', list: '**/api/iam/user/list**', text: '正在加载用户列表…' },
+    { name: '角色管理', path: '/console/roles', list: '**/api/iam/role/list**', text: '正在加载角色列表…' },
+    {
+      name: '授权管理',
+      path: '/console/authorizations',
+      list: '**/api/iam/permission/authorizations**',
+      text: '正在加载授权列表…',
+    },
+  ]
+
+  for (const c of cases) {
+    test(`${c.name}：加载中暴露 role=status 且文案随状态清空`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await loginAsAdmin(page)
+
+      await page.route(c.list, async (route) => {
+        await new Promise((r) => setTimeout(r, 2000))
+        await route.continue()
+      })
+      await page.goto(`${BASE_URL}${c.path}`)
+
+      const status = page.locator('[role="status"]')
+      await expect(status).toHaveCount(1)
+      await expect(status).toHaveAttribute('aria-live', 'polite')
+      await expect(status).toHaveText(c.text)
+
+      // sr-only：视觉不可见、仍在无障碍树
+      const hidden = await status.evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return parseInt(cs.width) <= 1 && parseInt(cs.height) <= 1
+      })
+      expect(hidden, '状态区应视觉隐藏（sr-only）').toBe(true)
+
+      // 加载完成后清空，确保下次加载能再次触发播报
+      await page.unroute(c.list)
+      await expect(status).toHaveText('', { timeout: 10_000 })
+    })
+  }
+})
