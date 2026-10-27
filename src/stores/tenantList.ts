@@ -18,7 +18,12 @@
  * 分页边界（E7，ui-design §边界行为约定）：
  * - page 超出总页数 → 回落最后页重查；
  * - 删除使当前页变空（末页唯一记录被删）→ 回退上一页重查；
- * - 切换 keyword → page 重置 1。
+ * - 切换 keyword / status → page 重置 1。
+ *
+ * 状态筛选（feat-tenant-status-filter 契约 §4.2）：
+ * - status 0=全部（默认）、1=启用、2=禁用；切筛选与 keyword 同口径重置 page=1；
+ * - fetch 把 status 一并交给 listTenants，后者仅在 >0 时放进请求体（0 = 不传，旧形状）；
+ * - resetState 复位为 0（全部），与 keyword 清空同口径。
  *
  * 持久化口径（Hard Rule）：列表态不落 localStorage——本 store 不声明 persist。
  * 401 收敛：经 registerUnauthorizedReset 自助注册复位回调（router 2.6）。
@@ -29,6 +34,7 @@ import {
   createTenant,
   deleteTenant,
   listTenants,
+  setDefaultTenant,
   updateTenant,
   type CreateTenantPayload,
   type UpdateTenantPayload,
@@ -40,6 +46,7 @@ import {
   enforceWriteGuard,
 } from "@/utils/tenantGuard";
 import { registerUnauthorizedReset } from "@/router";
+import { useUserStore } from "@/stores/user";
 
 /** 默认页大小（TECH-frontend-state-002：默认 20） */
 const DEFAULT_PAGE_SIZE = 20;
@@ -93,6 +100,33 @@ export interface DisableBlocked {
   tenantId: number;
 }
 
+/**
+ * 由列表项构造「全量回传」载荷（整体覆盖式更新的硬约束）。
+ *
+ * 为什么局部操作也要回传全字段：eiam `dao.TenantDAO.Update` 以显式 Select 落列
+ * （name/code/domain/status 与三类治理配置列），未携带即写零值；
+ * 且 `UpdateTenantReq.Name` / `Code` 均为 `binding:"required"`。故禁用/启用这类
+ * 「只想改一个字段」的操作，也必须带上当前行完整字段，否则：
+ * ① 请求被 eiam 校验拒绝（缺 name/code）；② 即使通过也会静默清空租户治理配置。
+ */
+function fullUpdatePayload(
+  t: Tenant | undefined,
+  status: NonNullable<Tenant["status"]>,
+): UpdateTenantPayload {
+  return {
+    id: t?.id ?? 0,
+    name: t?.name,
+    code: t?.code,
+    domain: t?.domain,
+    status,
+    maxAccounts: t?.maxAccounts ?? 0,
+    maxUsers: t?.maxUsers ?? 0,
+    maxUserGroups: t?.maxUserGroups ?? 0,
+    featureSwitch: t?.featureSwitch ?? {},
+    allowedVendors: t?.allowedVendors ?? [],
+  };
+}
+
 export const useTenantListStore = defineStore("tenantList", () => {
   // ---- 统一契约 state ----
   const items = ref<Tenant[]>([]);
@@ -105,6 +139,8 @@ export const useTenantListStore = defineStore("tenantList", () => {
   // ---- 筛选 UI 态 ----
   /** 关键词搜索（空串 = 不过滤） */
   const keyword = ref<string>("");
+  /** 状态筛选（0 = 全部；1 = 启用；2 = 禁用；契约 §2.3 语义） */
+  const status = ref<number>(0);
 
   // ---- 禁用被拒态（G-4 降级）----
   const disableBlocked = ref<DisableBlocked | null>(null);
@@ -136,7 +172,13 @@ export const useTenantListStore = defineStore("tenantList", () => {
     error.value = null;
     try {
       const offset = (page.value - 1) * pageSize.value;
-      const q = { offset, limit: pageSize.value, keyword: keyword.value };
+      const q = {
+        offset,
+        limit: pageSize.value,
+        keyword: keyword.value,
+        // 0 = 不过滤：api 层据此不把 status 放进请求体（旧请求形状不变）
+        status: status.value,
+      };
       const result = await listTenants(q);
       if (abort.signal.aborted) return false;
       // 响应回读：tenant/list 响应无 response 级租户标识 → 跳过此层（return true 放行）
@@ -214,8 +256,10 @@ export const useTenantListStore = defineStore("tenantList", () => {
   async function disable(id: number): Promise<boolean> {
     if (!enforceWriteGuard()) return false;
     disableBlocked.value = null;
+    const current = items.value.find((t) => t.id === id);
     try {
-      await updateTenant({ id, status: "disable" });
+      // 全量回传（eiam UpdateTenantReq name/code required + dao 整体覆盖式落列）
+      await updateTenant(fullUpdatePayload(current, "disable"));
       await fetch();
       return true;
     } catch (err) {
@@ -227,13 +271,37 @@ export const useTenantListStore = defineStore("tenantList", () => {
     }
   }
 
-  /** 启用租户（update status=active，无前置校验） */
+  /** 启用租户（update status=active，无前置校验；同样需全量回传） */
   async function enable(id: number): Promise<boolean> {
     if (!enforceWriteGuard()) return false;
     disableBlocked.value = null;
+    const current = items.value.find((t) => t.id === id);
     try {
-      await updateTenant({ id, status: "active" });
+      await updateTenant(fullUpdatePayload(current, "active"));
       await fetch();
+      return true;
+    } catch (err) {
+      error.value = errorMessage(err);
+      return false;
+    }
+  }
+
+  /**
+   * 设置默认登录租户（当前登录用户自己的偏好，下次登录直接落入）。
+   *
+   * 操作的是「当前登录用户」的 default_tenant_id，不是改租户本身——eiam 经
+   * user/default_tenant 端点持久化，switch 不覆盖。成功后本地同步 user store 的
+   * defaultTenantId（避免重拉 profile；列表页据此标记当前默认项）。
+   *
+   * @returns true=设置成功；false=失败（error 归位）
+   */
+  async function setDefault(id: number): Promise<boolean> {
+    if (!enforceWriteGuard()) return false;
+    disableBlocked.value = null;
+    try {
+      await setDefaultTenant(id);
+      // 本地同步 user store 的默认租户标记（不重拉 profile，避免副作用）
+      useUserStore().defaultTenantId = id;
       return true;
     } catch (err) {
       error.value = errorMessage(err);
@@ -270,6 +338,15 @@ export const useTenantListStore = defineStore("tenantList", () => {
     page.value = 1;
   }
 
+  /**
+   * 设置状态筛选（重置 page=1，与 setKeyword 同口径，E7 / 契约 §4.2）。
+   * 非法值不在此处特判：非 0/1/2 由后端按契约返回空结果（§2.3），前端不臆造过滤。
+   */
+  function setStatus(value: number): void {
+    status.value = value;
+    page.value = 1;
+  }
+
   /** 设置当前页（超界由 fetch 回落，E7） */
   function setPage(p: number): void {
     page.value = p < 1 ? 1 : p;
@@ -299,6 +376,7 @@ export const useTenantListStore = defineStore("tenantList", () => {
     loading.value = false;
     error.value = null;
     keyword.value = "";
+    status.value = 0;
     disableBlocked.value = null;
   }
 
@@ -315,6 +393,7 @@ export const useTenantListStore = defineStore("tenantList", () => {
     error,
     // 筛选 UI 态
     keyword,
+    status,
     // 禁用被拒态（G-4）
     disableBlocked,
     // actions
@@ -323,8 +402,10 @@ export const useTenantListStore = defineStore("tenantList", () => {
     update,
     disable,
     enable,
+    setDefault,
     remove,
     setKeyword,
+    setStatus,
     setPage,
     setPageSize,
     clearDisableBlocked,

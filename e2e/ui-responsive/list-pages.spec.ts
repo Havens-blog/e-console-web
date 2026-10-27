@@ -821,3 +821,183 @@ test.describe('详情页保存失败反馈', () => {
     await expect(page.locator('.state-empty')).toContainText('暂无角色数据')
   })
 })
+
+/**
+ * 租户管理页（CONTRACT 层）。
+ *
+ * 真实 admin 账号缺少 `iam:tenant:view`，直连会被守卫剪到 /console/forbidden，
+ * 因此用 CONTRACT 手法仅 fulfill profile（补租户权限码）与 tenant/list 两个响应体，
+ * 浏览器 / nginx / 登录链路均为真实。
+ *
+ * 修复前实测（子 agent 审计）：4 个弹窗全为「假模态」——无 aria-modal、Esc 无效、
+ * 焦点不进弹窗且 Tab 第 1 次即逃到背景、关闭后焦点落 body；错误态在表格容器外且
+ * 文案为「…请稍后重试重试」；空态不区分筛选；390 下表头 106px、行高 243px 逐字竖排。
+ */
+test.describe('租户管理页（CONTRACT）', () => {
+  const TENANT_ROWS = [
+    { id: 11, name: '华东验证租户', code: 'east', domain: 'east.local', status: 1 },
+    { id: 12, name: '华南演示租户', code: 'south', domain: 'south.local', status: 1 },
+  ]
+
+  async function openTenants(page: Page) {
+    const envelope = (data: unknown) => ({ code: 0, msg: 'ok', data })
+    await page.route('**/api/iam/user/profile**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          envelope({
+            user: { id: 1, username: 'admin', nickname: '管理员' },
+            tenants: [{ id: 11, name: '华东验证租户', code: 'east', domain: 'east.local' }],
+            current_tenant_id: 11,
+            is_admin: true,
+            permissions: [
+              'iam:tenant:view',
+              'iam:tenant:add',
+              'iam:tenant:edit',
+              'iam:tenant:get',
+              'iam:tenant:delete',
+            ],
+            must_select_tenant: false,
+          }),
+        ),
+      }),
+    )
+    await page.route('**/api/iam/tenant/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(envelope({ total: TENANT_ROWS.length, tenants: TENANT_ROWS })),
+      }),
+    )
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/tenants`, { waitUntil: 'networkidle' })
+    await expect(page.locator('tbody tr').first()).toBeVisible()
+  }
+
+  test('四个弹窗均为真模态：焦点入窗 / Esc 关闭 / Tab 不逃逸 / 焦点归还', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openTenants(page)
+
+    const cases = [
+      {
+        name: '新增租户',
+        trigger: page.locator('.page-head').getByRole('button', { name: '新增租户', exact: true }),
+        firstFocus: 'form-name',
+      },
+      { name: '编辑租户', trigger: page.getByTestId('edit-tenant').first(), firstFocus: 'form-name' },
+      { name: '禁用租户', trigger: page.getByTestId('disable-tenant').first(), firstFocus: '取消' },
+      { name: '删除租户', trigger: page.getByTestId('delete-tenant').first(), firstFocus: '取消' },
+    ]
+
+    for (const c of cases) {
+      await c.trigger.focus()
+      await c.trigger.click()
+      const dialog = page.locator('[role="dialog"],[role="alertdialog"]')
+      await expect(dialog.first(), `${c.name} 应打开`).toBeVisible()
+      await expect(dialog.first()).toHaveAttribute('aria-modal', 'true')
+      await expect(
+        dialog.first().getByRole('button', { name: '关闭', exact: true }),
+      ).toBeVisible()
+
+      const first = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null
+        return {
+          text: (el?.textContent ?? '').trim().slice(0, 8),
+          testid: el?.getAttribute('data-testid') ?? null,
+          inDialog: !!el?.closest('[role="dialog"],[role="alertdialog"]'),
+        }
+      })
+      expect(first.inDialog, `${c.name}: 首焦点应在弹窗内`).toBe(true)
+      if (c.firstFocus === '取消') expect(first.text).toBe('取消')
+      else expect(first.testid).toBe(c.firstFocus)
+
+      for (let i = 0; i < 6; i++) {
+        await page.keyboard.press('Tab')
+        const inside = await page.evaluate(
+          () => !!document.activeElement?.closest('[role="dialog"],[role="alertdialog"]'),
+        )
+        expect(inside, `${c.name}: Tab ${i + 1} 不应逃出弹窗`).toBe(true)
+      }
+
+      await page.keyboard.press('Escape')
+      await expect(dialog, `${c.name}: Esc 应关闭`).toHaveCount(0)
+      // 焦点归还触发按钮
+      const restored = await page.evaluate(
+        () => (document.activeElement as HTMLElement | null)?.getAttribute('data-testid') ?? null,
+      )
+      expect(restored, `${c.name}: 焦点应归还触发按钮`).toBe(
+        (await c.trigger.getAttribute('data-testid')) ?? restored,
+      )
+    }
+  })
+
+  test('错误态入容器且动作分层；筛选空态可清除', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openTenants(page)
+
+    // 错误态
+    await page.unroute('**/api/iam/tenant/list**')
+    await page.route('**/api/iam/tenant/list**', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 500, msg: 'boom', data: null }),
+      }),
+    )
+    await page.reload({ waitUntil: 'networkidle' })
+    const alert = page.locator('.table-wrap .state-error[role="alert"]')
+    await expect(alert).toBeVisible()
+    const geo = await page.evaluate(() => {
+      const box = document.querySelector('.table-wrap .state-error') as HTMLElement
+      const t = box.querySelector('span') as HTMLElement
+      const b = box.querySelector('button') as HTMLElement
+      return {
+        stacked: Math.round(b.getBoundingClientRect().top) >= Math.round(t.getBoundingClientRect().bottom),
+      }
+    })
+    expect(geo.stacked, '错误动作应在说明下一行').toBe(true)
+
+    // 筛选空态
+    await page.unroute('**/api/iam/tenant/list**')
+    await page.route('**/api/iam/tenant/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: { total: 0, tenants: [] } }),
+      }),
+    )
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.locator('.toolbar__search').first().fill('zzz-no-such-tenant')
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    await expect(page.locator('.state-empty')).toContainText('没有匹配的租户')
+    await expect(page.getByTestId('clear-filters')).toBeVisible()
+  })
+
+  test('390 窄屏：表头不竖排、表格可横向滚动', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await openTenants(page)
+
+    const m = await page.evaluate(() => ({
+      thMax: [...document.querySelectorAll('table.data-table th')].reduce(
+        (mx, th) => Math.max(mx, Math.round(th.getBoundingClientRect().height)),
+        0,
+      ),
+      rowH: Math.round(
+        document.querySelector('table.data-table tbody tr')?.getBoundingClientRect().height ?? 0,
+      ),
+      scroll: (() => {
+        const w = document.querySelector('.table-wrap') as HTMLElement
+        return w.scrollWidth - w.clientWidth
+      })(),
+      pageOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+    }))
+    // 修复前 thMax=106、rowH=243
+    expect(m.thMax).toBeLessThan(48)
+    expect(m.rowH).toBeLessThan(72)
+    expect(m.scroll).toBeGreaterThan(0)
+    expect(m.pageOverflow).toBe(false)
+  })
+})

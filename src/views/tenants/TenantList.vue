@@ -21,13 +21,25 @@
 import { computed, onMounted, ref } from "vue";
 import { useTenantListStore } from "@/stores/tenantList";
 import { ApiError } from "@/api/types";
+import type { Tenant } from "@/api/types";
+import type { TenantGovernancePayload } from "@/api/tenants";
 import { contractText, formatContractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { useCan } from "@/composables/useCan";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_TENANT } from "@/config/permission-codes";
+import { useUserStore } from "@/stores/user";
+import TenantMembersDrawer from "./TenantMembersDrawer.vue";
+import TenantDetailDrawer from "./TenantDetailDrawer.vue";
+import {
+  OVER_QUOTA_TEXT,
+  governanceSegments,
+  governanceSummary,
+} from "./usage";
 
 const store = useTenantListStore();
+const userStore = useUserStore();
 
 // P0 权限码按钮裁剪（词表 permission-codes.ts / parity §5；与菜单 & 路由守卫同口径；
 // 页面级由 requiresAdmin + iam:tenant:view 双闸，按钮级再细分 add/edit/delete）
@@ -41,9 +53,22 @@ function applySearch(): void {
   void store.fetch();
 }
 
+/**
+ * 状态筛选（feat-tenant-status-filter 契约 §4.3）：原生 select，change 即生效。
+ * 0=全部 / 1=启用 / 2=禁用；setStatus 内部重置 page=1（与 keyword 同口径）。
+ * 后端未提供 status 参数时：0 不传该键，选择「全部」不会报错（优雅降级）。
+ */
+function changeStatus(event: Event): void {
+  const raw = Number((event.target as HTMLSelectElement).value);
+  store.setStatus(Number.isFinite(raw) ? raw : 0);
+  void store.fetch();
+}
+
 function resetSearch(): void {
   keywordInput.value = "";
   store.setKeyword("");
+  // 重置同时清空状态筛选（契约 §4.3：回到全部 + 第 1 页）
+  store.setStatus(0);
   void store.fetch();
 }
 
@@ -81,6 +106,70 @@ const formCode = ref("");
 const formDomain = ref("");
 const formStatus = ref<"active" | "disable">("active");
 
+// ---- 三类治理配置（tenant-management spec 需求 2/6/7）----
+// 语义（eiam vo.go 注释）：配额 0 或负数 = 不限制；白名单空 = 允许全部厂商；
+// 开关空表 = 未启用差异化开关。UI 只提供「设置/取消设置」，不在此处做强制拦截
+// （R6 的操作侧拦截属 eiam 后端 feature，前端不臆造）。
+const formMaxAccounts = ref<number>(0);
+const formMaxUsers = ref<number>(0);
+const formMaxUserGroups = ref<number>(0);
+const formVendors = ref<string[]>([]);
+/** 功能开关行编辑（eiam 为自由 map[string]bool，无预定义键集，故用键 + 布尔行） */
+const formSwitches = ref<Array<{ key: string; on: boolean }>>([]);
+
+/** 云厂商候选（与平台 CloudProvider 词表同口径：e-cam-web constants.ts / Workbench PROVIDER_LABELS） */
+const VENDOR_OPTIONS: Array<{ key: string; label: string }> = [
+  { key: "aliyun", label: "阿里云" },
+  { key: "aws", label: "AWS" },
+  { key: "azure", label: "Microsoft Azure" },
+  { key: "tencent", label: "腾讯云" },
+  { key: "huawei", label: "华为云" },
+  { key: "volcano", label: "火山引擎" },
+];
+
+/** 输入框数值 → 配额 int（空/NaN/负数一律归 0 = 不限制） */
+function toQuota(v: number | string | null | undefined): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.trunc(n);
+}
+
+/** 开关行 → map（去空键、trim、后者覆盖前者，避免重复键歧义） */
+function switchesToMap(rows: Array<{ key: string; on: boolean }>): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const row of rows) {
+    const k = row.key.trim();
+    if (k) out[k] = row.on;
+  }
+  return out;
+}
+
+/** map → 开关行（保持稳定顺序：键名字典序，回显可预期） */
+function mapToSwitches(map: Record<string, boolean> | undefined): Array<{ key: string; on: boolean }> {
+  return Object.keys(map ?? {})
+    .sort()
+    .map((k) => ({ key: k, on: map?.[k] === true }));
+}
+
+function addSwitch(): void {
+  formSwitches.value.push({ key: "", on: true });
+}
+
+function removeSwitch(index: number): void {
+  formSwitches.value.splice(index, 1);
+}
+
+/** 表单 → 治理配置载荷（create/update 共用） */
+function governancePayload(): TenantGovernancePayload {
+  return {
+    maxAccounts: toQuota(formMaxAccounts.value),
+    maxUsers: toQuota(formMaxUsers.value),
+    maxUserGroups: toQuota(formMaxUserGroups.value),
+    featureSwitch: switchesToMap(formSwitches.value),
+    allowedVendors: [...formVendors.value],
+  };
+}
+
 const TENANT_NAME_MAX = 64;
 const TENANT_CODE_MAX = 32;
 
@@ -97,6 +186,15 @@ function validateCode(value: string): string | null {
   return null;
 }
 
+/** 治理配置区重置（新增态：全为零值 = 无约束） */
+function resetGovernance(): void {
+  formMaxAccounts.value = 0;
+  formMaxUsers.value = 0;
+  formMaxUserGroups.value = 0;
+  formVendors.value = [];
+  formSwitches.value = [];
+}
+
 function openCreate(): void {
   formMode.value = "create";
   formId.value = 0;
@@ -104,25 +202,26 @@ function openCreate(): void {
   formCode.value = "";
   formDomain.value = "";
   formStatus.value = "active";
+  resetGovernance();
   formError.value = "";
   formFieldErrors.value = {};
   store.clearDisableBlocked();
   showForm.value = true;
 }
 
-function openEdit(
-  id: number,
-  name: string,
-  code: string,
-  domain: string,
-  status: string,
-): void {
+function openEdit(t: Tenant): void {
   formMode.value = "edit";
-  formId.value = id;
-  formName.value = name;
-  formCode.value = code;
-  formDomain.value = domain;
-  formStatus.value = status === "disable" ? "disable" : "active";
+  formId.value = t.id;
+  formName.value = t.name;
+  formCode.value = t.code;
+  formDomain.value = t.domain;
+  formStatus.value = (t.status ?? "active") === "disable" ? "disable" : "active";
+  // 回显现有治理配置（eiam 已出参；缺省按无约束处理）
+  formMaxAccounts.value = t.maxAccounts ?? 0;
+  formMaxUsers.value = t.maxUsers ?? 0;
+  formMaxUserGroups.value = t.maxUserGroups ?? 0;
+  formVendors.value = [...(t.allowedVendors ?? [])];
+  formSwitches.value = mapToSwitches(t.featureSwitch);
   formError.value = "";
   formFieldErrors.value = {};
   store.clearDisableBlocked();
@@ -149,6 +248,7 @@ async function submitForm(): Promise<void> {
         name: formName.value,
         code: formCode.value,
         domain: formDomain.value || undefined,
+        ...governancePayload(),
       });
       if (id === null) {
         formError.value = store.error ?? "新增租户失败";
@@ -161,6 +261,7 @@ async function submitForm(): Promise<void> {
         code: formCode.value,
         domain: formDomain.value || undefined,
         status: formStatus.value,
+        ...governancePayload(),
       });
       if (!ok) {
         formError.value = store.error ?? "保存失败";
@@ -238,13 +339,92 @@ async function enableTenant(id: number): Promise<void> {
   await store.enable(id);
 }
 
+// ---- 设为默认登录租户（当前登录用户偏好，下次登录直接落入）----
+const settingDefault = ref(false);
+
+/** 当前行是否为当前用户的默认登录租户（据此渲染标记 + 按钮置灰） */
+function isDefaultTenant(id: number): boolean {
+  return userStore.defaultTenantId === id && id > 0;
+}
+
+async function setDefaultTenant(id: number): Promise<void> {
+  if (settingDefault.value || isDefaultTenant(id)) return;
+  settingDefault.value = true;
+  try {
+    await store.setDefault(id);
+  } finally {
+    settingDefault.value = false;
+  }
+}
+
+// ---- 成员抽屉（feat-tenant-members-ui 契约 §2.3）----
+// 行内「成员」按钮仅对持有 iam:tenant:view_members 的管理员渲染；
+// 打开后抽屉自拉成员列表（api 层固定注入 X-Active-Tenant-ID）。
+const membersTenant = ref<{ id: number; name: string } | null>(null);
+
+function openMembers(t: Tenant): void {
+  membersTenant.value = { id: t.id, name: t.name };
+}
+
+function closeMembers(): void {
+  membersTenant.value = null;
+}
+
+/** 成员移除成功 → 刷新租户列表（用量列 userCount 随之更新） */
+function onMembersRemoved(): void {
+  void store.fetch();
+}
+
+// ---- 详情抽屉（feat-tenant-detail-ui 契约 §2.4）----
+// 行内「详情」按钮仅对持有 iam:tenant:get 的管理员渲染；打开后抽屉自拉详情（只读）。
+const detailTenant = ref<{ id: number; name: string } | null>(null);
+
+function openDetail(t: Tenant): void {
+  detailTenant.value = { id: t.id, name: t.name };
+}
+
+function closeDetail(): void {
+  detailTenant.value = null;
+}
+
 // ---- 删除确认（依赖删除由 eiam 拒绝，msg 透传）----
-const deleteTarget = ref<{ id: number; name: string } | null>(null);
+// feat-tenant-delete-guard（需求 3 AC4/AC5）：eiam 现在会校验从属资源并拒绝删除。
+// 打开弹窗时用列表已有计数提前告知并禁用确认，避免管理员点了才被拒。
+const deleteTarget = ref<{
+  id: number;
+  name: string;
+  userCount?: number;
+  userGroupCount?: number;
+} | null>(null);
 const deleteLoading = ref(false);
 const deleteBlocked = ref<string>("");
 
-function openDelete(id: number, name: string): void {
-  deleteTarget.value = { id, name };
+/**
+ * 前置提示文案：仅当**已知**存在从属资源时返回提示（undefined = 统计不可用）。
+ *
+ * 为什么不把 undefined 当 0：统计不可用时前端无法判断，若据此禁用按钮会造成"永远删不掉"。
+ * 该情况交给服务端 fail-closed 兜底（服务端拒绝 → deleteBlocked 渲染原文）。
+ */
+const deleteResourceHint = computed(() => {
+  const t = deleteTarget.value;
+  if (!t) return "";
+  const u = t.userCount;
+  const g = t.userGroupCount;
+  if (typeof u !== "number" && typeof g !== "number") return "";
+  const parts: string[] = [];
+  if (typeof u === "number" && u > 0) parts.push(`${u} 个用户`);
+  if (typeof g === "number" && g > 0) parts.push(`${g} 个用户组`);
+  if (parts.length === 0) return "";
+  return `该租户仍有 ${parts.join("、")}，需先移除后才能删除。`;
+});
+
+function openDelete(t: Tenant): void {
+  deleteTarget.value = {
+    id: t.id,
+    name: t.name,
+    userCount: t.userCount,
+    userGroupCount: t.userGroupCount,
+  };
   deleteBlocked.value = "";
   deleteLoading.value = false;
 }
@@ -252,6 +432,8 @@ function openDelete(id: number, name: string): void {
 async function confirmDelete(): Promise<void> {
   if (!deleteTarget.value) return;
   if (deleteBlocked.value) return;
+  // 已知有从属资源时不发请求（服务端同样会拒，省一次往返）
+  if (deleteResourceHint.value) return;
   deleteLoading.value = true;
   try {
     const ok = await store.remove(deleteTarget.value.id);
@@ -270,12 +452,33 @@ function closeDelete(): void {
   deleteBlocked.value = "";
 }
 
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const formDialogRef = ref<HTMLElement | null>(null);
+const disableDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(formDialogRef, { open: showForm, onClose: closeForm });
+useDialogA11y(disableDialogRef, {
+  open: computed(() => disableTarget.value !== null),
+  onClose: closeDisable,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误禁用
+  initialFocus: "[data-dialog-cancel]",
+});
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  initialFocus: "[data-dialog-cancel]",
+});
+
 // ---- 状态迁移渲染辅助 ----
 const isError = computed(
   () => store.error !== null && store.items.length === 0,
 );
 const isEmpty = computed(
   () => !store.loading && store.items.length === 0 && store.error === null,
+);
+/** 是否存在生效中的筛选（关键词或状态；空态区分「筛选无结果」与「本来无数据」用） */
+const hasActiveFilters = computed(
+  () => store.keyword !== "" || store.status !== 0,
 );
 </script>
 
@@ -293,7 +496,7 @@ const isEmpty = computed(
       </button>
     </header>
 
-    <!-- 搜索栏：关键词 -->
+    <!-- 搜索栏：关键词 + 状态筛选（原生元素风格，不引入组件库） -->
     <div class="toolbar">
       <input
         v-model="keywordInput"
@@ -303,6 +506,18 @@ const isEmpty = computed(
         data-testid="tenant-search"
         @keyup.enter="applySearch"
       />
+      <!-- 状态筛选（契约 §4.3）：0=全部 / 1=启用 / 2=禁用；change 即重置 page=1 并重查 -->
+      <select
+        class="input toolbar__status"
+        data-testid="tenant-status-filter"
+        aria-label="按状态筛选"
+        :value="store.status"
+        @change="changeStatus"
+      >
+        <option :value="0">全部</option>
+        <option :value="1">启用</option>
+        <option :value="2">禁用</option>
+      </select>
       <button type="button" class="btn btn--ghost" @click="applySearch">
         搜索
       </button>
@@ -311,40 +526,83 @@ const isEmpty = computed(
       </button>
     </div>
 
-    <!-- 错误态（重试） -->
-    <p v-if="isError" class="state-error" role="alert">
-      <CopyContractText code="eiam.unavailable" tag="span" />
-      <button type="button" class="btn btn--text" @click="reload">重试</button>
-    </p>
-
-    <!-- 表格 -->
+    <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，
+         避免错误态下方残留一个空表格框（原实现错误文案在框外，框内无内容） -->
     <div class="table-wrap">
-      <table v-if="store.items.length > 0" class="data-table">
+      <!-- 错误态（重试）：说明在上、动作在下一行，避免「…请稍后重试」与「重试」连读 -->
+      <div v-if="isError" class="state-error" role="alert">
+        <CopyContractText code="eiam.unavailable" tag="span" />
+        <button type="button" class="btn btn--text" @click="reload">重试</button>
+      </div>
+
+      <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
             <th>租户名</th>
             <th>状态</th>
+            <th>治理配置</th>
             <th>活跃会话数</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="t in store.items" :key="t.id">
-            <td>{{ t.name }}</td>
+            <td>
+              {{ t.name }}
+              <span
+                v-if="isDefaultTenant(t.id)"
+                class="default-badge"
+                data-testid="default-tenant-badge"
+                >默认</span
+              >
+            </td>
             <td>
               <StatusBadge :status="t.status ?? 'unknown'" size="sm" />
+            </td>
+            <!--
+              治理配置摘要（配额 / 用量·上限 / 白名单 / 开关；tenant-management 需求 2/6/7
+              + feat-tenant-usage-stats 需求 5）：用量段超限时加 .is-over + 「超出配额」标记。
+              整行纯文本见 ./usage 的 governanceSummary（此处作 title 兜底可读全文）。
+            -->
+            <td
+              class="muted governance-cell"
+              data-testid="tenant-governance"
+              :title="governanceSummary(t)"
+            >
+              <template v-for="(seg, i) in governanceSegments(t)" :key="seg.key">
+                <span v-if="i > 0" class="governance-cell__sep"> · </span>
+                <span
+                  class="governance-cell__seg"
+                  :class="{ 'is-over': seg.over }"
+                  :data-testid="`tenant-usage-${seg.key}`"
+                  >{{ seg.text
+                  }}<template v-if="seg.over"
+                    >&nbsp;<span class="governance-cell__over">{{
+                      OVER_QUOTA_TEXT
+                    }}</span></template
+                  ></span
+                >
+              </template>
             </td>
             <!-- G-4：无 list 数据源，活跃会话数列降级 '—'；计数仅在禁用被拒时从拒绝消息提取展示 -->
             <td class="muted">{{ sessionPlaceholder }}</td>
             <td>
+              <!-- 详情入口（只读；权限 iam:tenant:get，无权限不渲染） -->
+              <button
+                v-if="can(IAM_TENANT.GET)"
+                type="button"
+                class="btn btn--text"
+                data-testid="tenant-detail"
+                @click="openDetail(t)"
+              >
+                详情
+              </button>
               <button
                 v-if="can(IAM_TENANT.EDIT)"
                 type="button"
                 class="btn btn--text"
                 data-testid="edit-tenant"
-                @click="
-                  openEdit(t.id, t.name, t.code, t.domain, t.status ?? 'active')
-                "
+                @click="openEdit(t)"
               >
                 编辑
               </button>
@@ -373,17 +631,50 @@ const isEmpty = computed(
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="delete-tenant"
-                @click="openDelete(t.id, t.name)"
+                @click="openDelete(t)"
               >
                 删除
+              </button>
+              <!-- 成员入口（权限 iam:tenant:view_members；无权限不渲染，不靠点击后报错） -->
+              <button
+                v-if="can(IAM_TENANT.VIEW_MEMBERS)"
+                type="button"
+                class="btn btn--text"
+                data-testid="tenant-members"
+                @click="openMembers(t)"
+              >
+                成员
+              </button>
+              <button
+                v-if="!isDefaultTenant(t.id)"
+                type="button"
+                class="btn btn--text"
+                :disabled="settingDefault"
+                data-testid="set-default-tenant"
+                @click="setDefaultTenant(t.id)"
+              >
+                {{ settingDefault ? "设置中…" : "设为默认" }}
               </button>
             </td>
           </tr>
         </tbody>
       </table>
 
-      <!-- 空态 -->
-      <p v-else-if="isEmpty" class="state-empty">暂无租户数据</p>
+      <!-- 空态：区分「筛选无结果」与「本来就没有数据」，前者给一键清除筛选出口 -->
+      <div v-else-if="isEmpty" class="state-empty">
+        <template v-if="hasActiveFilters">
+          <p class="state-empty__text">没有匹配的租户，试试更换关键词或状态筛选</p>
+          <button
+            type="button"
+            class="btn btn--text"
+            data-testid="clear-filters"
+            @click="resetSearch"
+          >
+            清除筛选
+          </button>
+        </template>
+        <p v-else class="state-empty__text">暂无租户数据</p>
+      </div>
 
       <!-- 加载骨架 -->
       <div v-else-if="store.loading" class="skeleton" aria-hidden="true">
@@ -429,13 +720,20 @@ const isEmpty = computed(
     <!-- 新增/编辑 Dialog（AC-4）-->
     <div v-if="showForm" class="dialog-overlay" @click.self="closeForm">
       <div
+        ref="formDialogRef"
         class="dialog"
         role="dialog"
+        aria-modal="true"
         :aria-label="formMode === 'create' ? '新增租户' : '编辑租户'"
       >
         <header class="dialog__head">
           <h3>{{ formMode === "create" ? "新增租户" : "编辑租户" }}</h3>
-          <button type="button" class="btn btn--text" @click="closeForm">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeForm"
+          >
             ✕
           </button>
         </header>
@@ -501,6 +799,114 @@ const isEmpty = computed(
               <option value="disable">禁用</option>
             </select>
           </label>
+
+          <!-- 三类治理配置（tenant-management spec 需求 2 配额 / 需求 7 云厂商 / 需求 6 功能开关） -->
+          <fieldset class="fieldset" data-testid="governance-section">
+            <legend class="fieldset__legend">治理配置</legend>
+            <p class="muted fieldset__hint">
+              配额留空或 0 = 不限制；白名单不勾选 = 允许全部云厂商；开关留空 =
+              不启用差异化开关。强制拦截在云资源创建侧由服务端执行。
+            </p>
+
+            <div class="quota-grid">
+              <label class="field">
+                <span class="field__label">最大云账号数</span>
+                <input
+                  v-model.number="formMaxAccounts"
+                  type="number"
+                  min="0"
+                  class="input"
+                  data-testid="form-max-accounts"
+                />
+              </label>
+              <label class="field">
+                <span class="field__label">最大用户数</span>
+                <input
+                  v-model.number="formMaxUsers"
+                  type="number"
+                  min="0"
+                  class="input"
+                  data-testid="form-max-users"
+                />
+              </label>
+              <label class="field">
+                <span class="field__label">最大用户组数</span>
+                <input
+                  v-model.number="formMaxUserGroups"
+                  type="number"
+                  min="0"
+                  class="input"
+                  data-testid="form-max-user-groups"
+                />
+              </label>
+            </div>
+
+            <div class="field">
+              <span class="field__label">云厂商白名单</span>
+              <div class="vendor-grid">
+                <label
+                  v-for="v in VENDOR_OPTIONS"
+                  :key="v.key"
+                  class="vendor-option"
+                >
+                  <input
+                    v-model="formVendors"
+                    type="checkbox"
+                    :value="v.key"
+                    :data-testid="`form-vendor-${v.key}`"
+                  />
+                  <span>{{ v.label }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="field__label">功能开关</span>
+              <p v-if="formSwitches.length === 0" class="muted">
+                暂无开关（空表 = 不启用任何差异化开关）
+              </p>
+              <div
+                v-for="(sw, i) in formSwitches"
+                :key="i"
+                class="switch-row"
+              >
+                <input
+                  v-model="sw.key"
+                  type="text"
+                  class="input switch-row__key"
+                  placeholder="开关键，如 cdn"
+                  :data-testid="`form-switch-key-${i}`"
+                />
+                <label class="switch-row__toggle">
+                  <input
+                    v-model="sw.on"
+                    type="checkbox"
+                    :data-testid="`form-switch-on-${i}`"
+                  />
+                  <span>{{ sw.on ? "启用" : "禁用" }}</span>
+                </label>
+                <button
+                  type="button"
+                  class="btn btn--text btn--danger"
+                  :data-testid="`form-switch-remove-${i}`"
+                  @click="removeSwitch(i)"
+                >
+                  删除
+                </button>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  class="btn btn--text"
+                  data-testid="form-switch-add"
+                  @click="addSwitch"
+                >
+                  ＋ 添加开关
+                </button>
+              </div>
+            </div>
+          </fieldset>
+
           <div class="dialog__actions">
             <button type="button" class="btn btn--ghost" @click="closeForm">
               取消
@@ -521,18 +927,26 @@ const isEmpty = computed(
     <!-- 禁用确认 Dialog（AC-3，G-4 降级：被拒显示活跃会话数）-->
     <div v-if="disableTarget" class="dialog-overlay" @click.self="closeDisable">
       <div
+        ref="disableDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
+        aria-describedby="disable-tenant-desc"
         :aria-label="`禁用租户 ${disableTarget.name}`"
       >
         <header class="dialog__head">
           <h3>禁用租户</h3>
-          <button type="button" class="btn btn--text" @click="closeDisable">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDisable"
+          >
             ✕
           </button>
         </header>
         <div class="dialog__body">
-          <p>
+          <p id="disable-tenant-desc">
             确认禁用租户 <strong>{{ disableTarget.name }}</strong
             >？禁用后该租户用户将无法登录。
           </p>
@@ -554,7 +968,12 @@ const isEmpty = computed(
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDisable">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDisable"
+          >
             取消
           </button>
           <button
@@ -573,33 +992,55 @@ const isEmpty = computed(
     <!-- 删除确认 Dialog（依赖删除由 eiam 拒绝，msg 透传）-->
     <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
       <div
+        ref="deleteDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
+        aria-describedby="delete-tenant-desc"
         :aria-label="`删除租户 ${deleteTarget.name}`"
       >
         <header class="dialog__head">
           <h3>删除租户</h3>
-          <button type="button" class="btn btn--text" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDelete"
+          >
             ✕
           </button>
         </header>
         <div class="dialog__body">
-          <p>
+          <p id="delete-tenant-desc">
             确认删除租户 <strong>{{ deleteTarget.name }}</strong
             >？此操作不可撤销。
+          </p>
+          <!-- 前置提示：已知仍有从属资源时直接拦住（feat-tenant-delete-guard，需求 3 AC4/AC5） -->
+          <p
+            v-if="deleteResourceHint"
+            class="delete-blocked"
+            role="alert"
+            data-testid="delete-resource-hint"
+          >
+            {{ deleteResourceHint }}
           </p>
           <p v-if="deleteBlocked" class="delete-blocked" role="alert">
             {{ deleteBlocked }}
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDelete"
+          >
             取消
           </button>
           <button
             type="button"
             class="btn btn--danger"
-            :disabled="deleteLoading || !!deleteBlocked"
+            :disabled="deleteLoading || !!deleteBlocked || !!deleteResourceHint"
             data-testid="delete-confirm"
             @click="confirmDelete"
           >
@@ -608,6 +1049,16 @@ const isEmpty = computed(
         </div>
       </div>
     </div>
+
+    <!-- 租户成员抽屉（feat-tenant-members-ui 契约 §2.3）-->
+    <TenantMembersDrawer
+      :tenant="membersTenant"
+      @close="closeMembers"
+      @removed="onMembersRemoved"
+    />
+
+    <!-- 租户详情抽屉（feat-tenant-detail-ui 契约 §2.4；只读）-->
+    <TenantDetailDrawer :tenant="detailTenant" @close="closeDetail" />
   </section>
 </template>
 
@@ -640,6 +1091,10 @@ const isEmpty = computed(
 
   &__search {
     min-width: 220px;
+  }
+  /* 状态筛选下拉（原生 select，与 input 同高同风格） */
+  &__status {
+    min-width: 110px;
   }
 }
 
@@ -709,6 +1164,10 @@ const isEmpty = computed(
 
 .data-table {
   width: 100%;
+  // 窄屏保留可读最小列宽，超出容器由 .table-wrap 横向滚动承担。
+  // 缺这条时 390 下「活跃会话数」列被压到 37px，中文逐字竖排（表头 106px、行高 243px），
+  // 且 5 个操作按钮被拆成一字一行、操作列初始滚出可视区。
+  min-width: 880px;
   border-collapse: collapse;
   font-size: 13px;
 
@@ -717,6 +1176,7 @@ const isEmpty = computed(
     padding: 10px 12px;
     text-align: left;
     border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
   }
   th {
     color: var(--text-secondary);
@@ -732,11 +1192,60 @@ const isEmpty = computed(
   font-size: 12px;
 }
 
+/* ---- 治理配置列：用量 / 上限（feat-tenant-usage-stats 需求 5，契约 §4.2）----
+ * 单个指标一段（账号 / 用户 / 组 / 厂商 / 开关），段间 ' · '、用量与上限间 ' / '；
+ * 超限段（用量 > 配额 > 0）整段危险色 + 「超出配额」徽标。
+ */
+.governance-cell {
+  &__sep {
+    color: var(--text-secondary);
+  }
+
+  &__seg {
+    white-space: nowrap;
+
+    &.is-over {
+      color: var(--color-danger);
+      font-weight: 600;
+    }
+  }
+
+  &__over {
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.6;
+    background: var(--color-danger);
+    color: #fff;
+  }
+}
+
 .state-empty,
 .state-error {
   padding: 32px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+// 错误态：说明在上、重试动作在下一行（同行时「…请稍后重试」+「重试」会读成「重试重试」）
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__text {
+    margin: 0;
+  }
 }
 
 .skeleton__row {
@@ -790,6 +1299,11 @@ const isEmpty = computed(
     justify-content: space-between;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border-subtle);
+    // 弹窗内部滚动时标题与 ✕ 吸顶，避免滚出可视区后无关闭入口
+    position: sticky;
+    top: 0;
+    background: var(--bg-elevated);
+    z-index: 1;
     h3 {
       margin: 0;
       font-size: 16px;
@@ -829,6 +1343,81 @@ const isEmpty = computed(
   margin-left: 2px;
 }
 
+/* ---- 治理配置区（tenant-management spec 需求 2/6/7）---- */
+.fieldset {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+
+  &__legend {
+    padding: 0 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-regular);
+  }
+
+  &__hint {
+    margin: 0;
+    line-height: 1.6;
+  }
+}
+
+.quota-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.vendor-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.vendor-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-regular);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  min-width: 0;
+
+  &__key {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  &__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-regular);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+}
+
+/* 窄屏：配额三列并排会挤压，降为单列（弹窗本身 max-width 520px，375px 视口下可用） */
+@media (max-width: 480px) {
+  .quota-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .form-error,
 .delete-blocked {
   padding: 8px 10px;
@@ -836,5 +1425,17 @@ const isEmpty = computed(
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: 13px;
+}
+
+/* 默认登录租户标记徽章 */
+.default-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--accent-primary, #5e6ad2) 16%, transparent);
+  color: var(--accent-primary, #5e6ad2);
 }
 </style>
