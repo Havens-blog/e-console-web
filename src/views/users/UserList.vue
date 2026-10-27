@@ -616,7 +616,7 @@ useDialogA11y(deleteDialogRef, {
           </div>
           <div class="field">
             <span class="field__label">组织</span>
-            <span class="muted">—（无数据源，待 eiam 补组织 ref）</span>
+            <span class="muted">—（新建时暂不支持指定组织，可在用户详情中查看）</span>
           </div>
           <div class="dialog__actions">
             <button type="button" class="btn btn--ghost" @click="closeCreate">
