@@ -235,10 +235,18 @@ const hasActiveFilters = computed(() => store.keyword !== "");
       </button>
     </header>
 
-    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
-         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到「正在加载」信息。 -->
+    <!-- 读屏播报：加载中 / 空结果 / 结果条数都经此常驻区域播报（视觉不可见）。
+         只播「正在加载」不够——加载结束后读屏拿不到「回来几条」「是否没搜到」。 -->
     <p class="sr-only" role="status" aria-live="polite">
-      {{ store.loading ? "正在加载授权列表…" : "" }}
+      {{
+        store.loading
+          ? "正在加载授权列表…"
+          : isEmpty
+            ? hasActiveFilters
+              ? "没有匹配的授权，已保留当前筛选条件"
+              : "暂无授权数据"
+            : `共 ${store.total} 条`
+      }}
     </p>
 
     <!-- 词表来源版本标注（G-5 降级）-->

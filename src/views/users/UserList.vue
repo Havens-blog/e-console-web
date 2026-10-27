@@ -320,10 +320,19 @@ useDialogA11y(deleteDialogRef, {
       </button>
     </header>
 
-    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
-         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到任何「正在加载」信息。 -->
+    <!-- 读屏播报：加载中 / 空结果 / 结果条数都经此常驻区域播报（视觉不可见）。
+         只播「正在加载」是不够的——加载结束后读屏得不到「回来了几条」「是不是没搜到」，
+         视觉上能看到的空态文案（.state-empty）不在 live region 内，读屏不会自动念。 -->
     <p class="sr-only" role="status" aria-live="polite">
-      {{ store.loading ? "正在加载用户列表…" : "" }}
+      {{
+        store.loading
+          ? "正在加载用户列表…"
+          : isEmpty
+            ? hasActiveFilters
+              ? "没有匹配的用户，已保留当前筛选条件"
+              : "暂无用户数据"
+            : `共 ${store.total} 条`
+      }}
     </p>
 
     <!-- 搜索栏：关键词 + 角色过滤 -->
