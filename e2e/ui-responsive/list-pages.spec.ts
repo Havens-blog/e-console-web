@@ -1559,3 +1559,50 @@ test.describe('详情页加载态可播报', () => {
     await expect(status).toHaveText('', { timeout: 10_000 })
   })
 })
+
+/**
+ * 403 页语义与文案。
+ *
+ * 修复前实测：页面**没有任何 h1/h2**（`document.querySelectorAll('h1,h2,h3')` 为空），
+ * 读屏用户按标题导航找不到这一页；正文还残留内部术语
+ * 「当前页面访问被权限裁剪拦截，不会跳转登录页（403 本地态）」。
+ * 修复后：标题即契约文案，提示语改为面向使用者的表述。
+ */
+test.describe('403 页', () => {
+  test('有语义标题（即契约文案），且不暴露内部术语', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.goto(`${BASE_URL}/console/forbidden?required=iam:tenant:view`, {
+      waitUntil: 'networkidle',
+    })
+
+    // 语义标题存在，且内容就是契约文案（不新造第二套措辞）
+    const heading = page.getByRole('heading', { level: 1 })
+    await expect(heading).toHaveCount(1)
+    await expect(heading).toHaveText('无权限执行该操作')
+
+    // 权限码透传仍展示
+    await expect(page.getByTestId('forbidden-required')).toContainText('iam:tenant:view')
+
+    // 面客文案不含实现术语
+    const text = await page.evaluate(() => document.body.innerText)
+    expect(text).not.toContain('权限裁剪')
+    expect(text).not.toContain('本地态')
+    expect(text).toContain('登录状态仍然有效')
+  })
+
+  test('390 窄屏无横向溢出', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/forbidden?required=iam:tenant:view`, {
+      waitUntil: 'networkidle',
+    })
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1,
+    )
+    expect(overflow).toBe(false)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  })
+})
