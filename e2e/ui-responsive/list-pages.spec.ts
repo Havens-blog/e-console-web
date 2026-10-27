@@ -1786,3 +1786,38 @@ test.describe('地标结构', () => {
     await expect(region).toHaveAttribute('aria-label', '组织详情与成员')
   })
 })
+
+/**
+ * 页面主标题必须是 h1（文档大纲锚点）。
+ *
+ * 修复前实测：全站**没有任何 h1**——每个业务页的标题都是 `<h2 class="page-title">`，
+ * 读屏按标题导航时找不到「这一页是什么」的锚点（首次进入只能靠逐段听）。
+ */
+test.describe('页面主标题', () => {
+  const pages = [
+    { name: '用户管理', path: '/console/users', title: '用户管理' },
+    { name: '角色管理', path: '/console/roles', title: '角色管理' },
+    { name: '策略管理', path: '/console/policies', title: '策略管理' },
+    { name: '组织管理', path: '/console/organizations', title: '组织管理' },
+  ]
+
+  for (const p of pages) {
+    test(`${p.name}：页面标题是 h1`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await loginAsAdmin(page)
+      await page.goto(`${BASE_URL}${p.path}`, { waitUntil: 'networkidle' })
+
+      const h1 = page.getByRole('heading', { level: 1 })
+      await expect(h1).toHaveCount(1)
+      await expect(h1).toHaveText(p.title)
+
+      // 视觉不变：.page-title 显式 20px，不受 h1 默认字号影响
+      const style = await h1.evaluate((el) => {
+        const cs = getComputedStyle(el)
+        return { fontSize: cs.fontSize, fontWeight: cs.fontWeight }
+      })
+      expect(style.fontSize).toBe('20px')
+      expect(style.fontWeight).toBe('600')
+    })
+  }
+})
