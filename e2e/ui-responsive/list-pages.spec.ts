@@ -718,3 +718,106 @@ test.describe('列表三态 · 第三批页面', () => {
     await expect(page.locator('.state-empty')).toContainText('暂无身份源配置')
   })
 })
+
+/**
+ * 详情页「保存失败」必须被看见。
+ *
+ * 修复前实测（390×844，滚到底提交，接口 500）：错误提示渲染在表单顶部，
+ * getBoundingClientRect().top 为 -369（用户详情）/ -110（角色详情）——完全在视口外，
+ * 且无 toast、无 aria-live、焦点停在 BODY，按钮复位「保存」→ 与「没反应」无法区分。
+ */
+test.describe('详情页保存失败反馈', () => {
+  const saveError = (page: Page) => page.getByTestId('save-error')
+
+  async function expectVisibleAndFocused(page: Page, label: string) {
+    const el = saveError(page)
+    await expect(el, `${label}: 保存失败提示应出现`).toBeVisible()
+    await expect(el).toHaveAttribute('role', 'alert')
+
+    const geo = await page.evaluate(() => {
+      const box = document.querySelector('[data-testid="save-error"]') as HTMLElement
+      const r = box.getBoundingClientRect()
+      return {
+        top: Math.round(r.top),
+        bottom: Math.round(r.bottom),
+        inViewport: r.top >= 0 && r.bottom <= window.innerHeight,
+        focused: document.activeElement === box,
+      }
+    })
+    expect(geo.inViewport, `${label}: 提示应在视口内`).toBe(true)
+    expect(geo.focused, `${label}: 焦点应落到提示上`).toBe(true)
+  }
+
+  test('用户详情：390 滚到底保存失败 → 提示滚入视口并聚焦', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users/1`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    // 无改动时保存按钮禁用，先改一个字段（不提交成功，接口被拦截）
+    await page.route('**/api/iam/user/update**', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 500, msg: 'upstream error', data: null }),
+      }),
+    )
+    await page.locator('.detail-form input:not([readonly])').first().fill('probe-save-fail')
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await page.locator('.form-actions button', { hasText: '保存' }).click()
+
+    await expectVisibleAndFocused(page, '用户详情')
+  })
+
+  test('角色详情：390 滚到底保存失败 → 提示滚入视口并聚焦', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/roles/admin`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    await page.route('**/api/iam/role/update**', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 500, msg: 'upstream error', data: null }),
+      }),
+    )
+    await page.locator('.detail-form input:not([readonly])').first().fill('probe-role-save-fail')
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+    await page
+      .locator('.form-actions button, .detail-actions button')
+      .filter({ hasText: '保存' })
+      .first()
+      .click()
+
+    await expectVisibleAndFocused(page, '角色详情')
+  })
+
+  /**
+   * 角色列表筛选空态。
+   *
+   * 注意：当前 eiam 的 `role/list` 忽略了请求里的 keyword
+   * （eiam/internal/web/role/handler.go:186 只传 Offset/Limit，service 的 Search/CountByKeyword 未接线），
+   * 因此真实搜索永远返回全量，前端「筛选无结果」分支在真实后端下不可达。
+   * 本用例用 CONTRACT 方式返回空页，验证前端该分支的文案与清除出口本身正确。
+   */
+  test('CONTRACT · 角色列表筛选空态：区分文案并可一键清除', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.route('**/api/iam/role/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: { total: 0, items: [] } }),
+      }),
+    )
+    await page.goto(`${BASE_URL}/console/roles`, { waitUntil: 'networkidle' })
+
+    await page.getByTestId('role-search').fill('zzz-not-exist-role')
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    await expect(page.locator('.state-empty')).toContainText('没有匹配的角色')
+
+    await page.getByTestId('clear-filters').click()
+    await expect(page.locator('.state-empty')).toContainText('暂无角色数据')
+  })
+})

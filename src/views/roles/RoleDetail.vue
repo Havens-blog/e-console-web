@@ -40,6 +40,7 @@ import { ApiError, type Role, type User } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
+import { useErrorReveal } from "@/composables/useErrorReveal";
 import { IAM_POLICY, IAM_ROLE } from "@/config/permission-codes";
 
 const route = useRoute();
@@ -264,6 +265,10 @@ async function save(): Promise<void> {
 function back(): void {
   void router.push("/roles");
 }
+
+// ---- 保存失败必须被看见：滚入视口 + 聚焦（窄屏滚到底提交时，提示原先在视口外）----
+const saveErrorRef = ref<HTMLElement | null>(null);
+useErrorReveal(saveError, saveErrorRef);
 </script>
 
 <template>
@@ -297,7 +302,14 @@ function back(): void {
     </div>
 
     <form v-else-if="role" class="detail-form" @submit.prevent="save">
-      <p v-if="saveError" class="form-error" role="alert">
+      <p
+        v-if="saveError"
+        ref="saveErrorRef"
+        class="form-error"
+        role="alert"
+        tabindex="-1"
+        data-testid="save-error"
+      >
         <CopyContractText :code="saveError" tag="span" />
       </p>
 

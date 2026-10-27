@@ -228,6 +228,8 @@ const isError = computed(
 const isEmpty = computed(
   () => !store.loading && store.items.length === 0 && store.error === null,
 );
+/** 是否存在生效中的筛选（空态区分「筛选无结果」与「本来无数据」用） */
+const hasActiveFilters = computed(() => store.keyword !== "");
 
 /** 绑定策略数展示（enrichCounts 回填；cap 100 超限显示 100+） */
 function policyCount(code: string): string {
@@ -332,7 +334,21 @@ function userCount(code: string): string {
       </table>
 
       <!-- 空态 -->
-      <p v-else-if="isEmpty" class="state-empty">暂无角色数据</p>
+      <!-- 空态：区分「筛选无结果」与「本来就没有数据」，前者给一键清除筛选出口 -->
+      <div v-else-if="isEmpty" class="state-empty">
+        <template v-if="hasActiveFilters">
+          <p class="state-empty__text">没有匹配的角色，试试更换角色名关键词</p>
+          <button
+            type="button"
+            class="btn btn--text"
+            data-testid="clear-filters"
+            @click="resetFilters"
+          >
+            清除筛选
+          </button>
+        </template>
+        <p v-else class="state-empty__text">暂无角色数据</p>
+      </div>
 
       <!-- 加载骨架 -->
       <div v-else-if="store.loading" class="skeleton" aria-hidden="true">
@@ -693,6 +709,17 @@ function userCount(code: string): string {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+}
+
+.state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__text {
+    margin: 0;
+  }
 }
 
 .skeleton__row {
