@@ -43,6 +43,29 @@ const PREFERRED_SELECTOR = 'input:not([type="hidden"]):not([disabled]), select:n
  */
 const DEFAULT_FALLBACK_SELECTORS = ['.page-title', '.page-head', '[role="main"]', 'main', '.layout-content']
 
+/**
+ * 弹窗栈：同一时刻可能有两个弹窗（例如「新增」弹窗开着时，脚本/竞态路径又打开了
+ * 「删除确认」）。实测并存时有两个缺陷：
+ *   1) Esc 关掉的是**先注册**的那个（即底层弹窗），而不是最上层；
+ *   2) 底层弹窗关闭时会把它自己的背景隔离一起解除，而上层弹窗仍需要隔离，
+ *      于是背景又能被聚焦。
+ * 因此 Esc / Tab 陷阱 / 背景隔离都只由**栈顶**弹窗负责。
+ */
+interface StackEntry {
+  root: () => HTMLElement | null
+}
+const dialogStack: StackEntry[] = []
+let releaseIsolationForTop: (() => void) | null = null
+
+/** 按当前栈顶重算背景隔离（先解除旧的，再为新的栈顶申请） */
+function syncBackgroundIsolation(): void {
+  releaseIsolationForTop?.()
+  releaseIsolationForTop = null
+  const top = dialogStack[dialogStack.length - 1]
+  const root = top?.root() ?? null
+  if (root) releaseIsolationForTop = isolateBackground(root)
+}
+
 export interface DialogA11yOptions {
   /** 弹窗开关（普通 ref 或 computed 均可） */
   open: Readonly<Ref<boolean>>
@@ -63,8 +86,8 @@ export function useDialogA11y(
 ): void {
   /** 打开前的焦点元素，关闭时归还 */
   let restoreTarget: HTMLElement | null = null
-  // 背景隔离的还原函数（关闭弹窗时调用；无背景可隔离时为 null）
-  let releaseBackground: (() => void) | null = null
+  // 本实例在弹窗栈中的条目（用于判断自己是否为栈顶）
+  const entry: StackEntry = { root: () => dialogRef.value }
 
   function focusables(): HTMLElement[] {
     const root = dialogRef.value
@@ -114,6 +137,9 @@ export function useDialogA11y(
     if (!options.open.value) return
     const root = dialogRef.value
     if (!root) return
+    // 只有栈顶弹窗响应 Esc 与 Tab：并存时否则会关掉底层弹窗（实测），
+    // 或两个陷阱同时抢焦点。
+    if (dialogStack[dialogStack.length - 1] !== entry) return
 
     if (event.key === 'Escape') {
       // 弹窗内若有「展开中的浮层」（Element Plus el-select / 下拉等以 aria-expanded=true
@@ -162,7 +188,9 @@ export function useDialogA11y(
         document.addEventListener('keydown', onKeydown, true)
         // 等 v-if 真正渲染出弹窗节点再取焦点目标
         await nextTick()
-        releaseBackground = dialogRef.value ? isolateBackground(dialogRef.value) : null
+        // 入栈并让自己成为栈顶：Esc/Tab/背景隔离都归属栈顶
+        dialogStack.push(entry)
+        syncBackgroundIsolation()
         focusInitial()
       } else {
         document.removeEventListener('keydown', onKeydown, true)
@@ -172,8 +200,10 @@ export function useDialogA11y(
         restoreTarget = null
         await nextTick()
         if (options.open.value) return
-        releaseBackground?.()
-        releaseBackground = null
+        // 出栈后由新的栈顶接管背景隔离（若还有弹窗开着，隔离不能整体解除）
+        const idx = dialogStack.indexOf(entry)
+        if (idx >= 0) dialogStack.splice(idx, 1)
+        syncBackgroundIsolation()
         // 触发元素可能已随数据消失（删除成功后整行被移除）：
         // 此时若只判断 isConnected，焦点会落回 <body>，键盘/读屏用户丢失位置。
         if (target && target.isConnected) target.focus()
@@ -185,8 +215,9 @@ export function useDialogA11y(
 
   onBeforeUnmount(() => {
     document.removeEventListener('keydown', onKeydown, true)
-    releaseBackground?.()
-    releaseBackground = null
+    const idx = dialogStack.indexOf(entry)
+    if (idx >= 0) dialogStack.splice(idx, 1)
+    syncBackgroundIsolation()
   })
 }
 

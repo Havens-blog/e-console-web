@@ -272,4 +272,83 @@ describe('useDialogA11y', () => {
     custom.remove()
     wrapper.unmount()
   })
+
+  /**
+   * 弹窗栈（R11）：两个弹窗并存时，Esc 必须关最上层，且底层关闭不能解除上层仍需要的隔离。
+   * 实测修复前：Esc 关掉的是底层「先注册」的弹窗，且 inert 被清成 0。
+   */
+  it('两个弹窗并存时，Esc 只关最上层；隔离归属栈顶', async () => {
+    const background = document.createElement('main')
+    background.id = 'bg'
+    document.body.appendChild(background)
+
+    const closed: string[] = []
+
+    /** 独立挂一个弹窗组件（与真实页面一致：每个弹窗各自 useDialogA11y） */
+    const mountOne = (id: string) => {
+      const Comp = defineComponent({
+        setup() {
+          const open = ref(false)
+          const dialogRef = ref<HTMLElement | null>(null)
+          useDialogA11y(dialogRef, {
+            open,
+            onClose: () => {
+              closed.push(id)
+              open.value = false
+            },
+          })
+          return { open, dialogRef }
+        },
+        render() {
+          return h('div', [
+            h('button', { id: `open-${id}`, onClick: () => (this.open = true) }, `open-${id}`),
+            this.open
+              ? h(
+                  'div',
+                  { id: `dlg-${id}`, ref: 'dialogRef', role: 'dialog', 'aria-modal': 'true' },
+                  [h('input', { id: `field-${id}` })],
+                )
+              : null,
+          ])
+        },
+      })
+      return mount(Comp, { attachTo: document.body })
+    }
+
+    const wA = mountOne('a')
+    const wB = mountOne('b')
+
+    await wA.find('#open-a').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(document.getElementById('dlg-a')).not.toBeNull()
+    expect(background.hasAttribute('inert')).toBe(true)
+
+    // 再开第二个（模拟「新增弹窗开着时删除确认又打开」的并存态）
+    await wB.find('#open-b').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(document.getElementById('dlg-b')).not.toBeNull()
+
+    // 第一次 Esc：只关最上层 b
+    pressKey('Escape')
+    await nextTick()
+    await nextTick()
+    expect(closed).toEqual(['b'])
+    expect(document.getElementById('dlg-b')).toBeNull()
+    expect(document.getElementById('dlg-a')).not.toBeNull()
+    // a 仍在 → 背景必须继续隔离（修复前此处 inert 被清成 0）
+    expect(background.hasAttribute('inert')).toBe(true)
+
+    // 第二次 Esc：关 a
+    pressKey('Escape')
+    await nextTick()
+    await nextTick()
+    expect(closed).toEqual(['b', 'a'])
+    expect(background.hasAttribute('inert')).toBe(false)
+
+    background.remove()
+    wA.unmount()
+    wB.unmount()
+  })
 })

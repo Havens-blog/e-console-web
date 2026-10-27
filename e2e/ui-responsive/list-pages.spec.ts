@@ -1421,3 +1421,55 @@ test.describe('删除后焦点兜底', () => {
     expect(next).not.toBe('')
   })
 })
+
+/**
+ * 弹窗栈（R11）。
+ *
+ * 实测可复现：用脚本在「新增用户」弹窗开着时再点行内「删除」→ 两个弹窗并存。
+ * 修复前两个缺陷：
+ *   1) 第一次 Esc 关掉的是**底层**（先注册）的「新增用户」，而不是最上层「删除确认」；
+ *   2) 底层关闭时把 inert 整体清成 0，而上层仍需隔离 → 背景又变得可聚焦。
+ */
+test.describe('弹窗栈', () => {
+  test('两弹窗并存时 Esc 只关最上层，且隔离仍归属剩余弹窗', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+
+    const snapshot = () =>
+      page.evaluate(() => {
+        const dialogs = [...document.querySelectorAll('[role="dialog"], [role="alertdialog"]')]
+        return {
+          count: dialogs.length,
+          titles: dialogs.map((d) => (d.getAttribute('aria-label') || d.querySelector('h3')?.textContent || '').trim()),
+          inert: document.querySelectorAll('[inert]').length,
+        }
+      })
+
+    // 打开「新增用户」
+    await page.getByRole('button', { name: '新增用户', exact: true }).click()
+    await expect(page.locator('.dialog-overlay')).toHaveCount(1)
+
+    // 脚本绕过遮罩，再打开行内「删除」→ 并存
+    await page.evaluate(() => document.querySelector<HTMLElement>('[data-testid="delete-user"]')?.click())
+    await expect(page.locator('.dialog-overlay')).toHaveCount(2)
+
+    const both = await snapshot()
+    expect(both.count).toBe(2)
+    expect(both.titles.join('|')).toContain('删除用户')
+
+    // 第一次 Esc：只关最上层（删除确认）
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.dialog-overlay')).toHaveCount(1)
+    const afterFirst = await snapshot()
+    expect(afterFirst.titles.join('|')).toContain('新增用户')
+    expect(afterFirst.titles.join('|')).not.toContain('删除用户')
+    // 剩余弹窗仍须隔离背景（修复前此处为 0）
+    expect(afterFirst.inert).toBeGreaterThan(0)
+
+    // 第二次 Esc：关掉「新增用户」
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.dialog-overlay')).toHaveCount(0)
+    expect((await snapshot()).inert).toBe(0)
+  })
+})
