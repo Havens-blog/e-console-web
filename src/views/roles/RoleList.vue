@@ -262,15 +262,15 @@ function userCount(code: string): string {
       </button>
     </div>
 
-    <!-- 错误态（重试） -->
-    <p v-if="isError" class="state-error" role="alert">
-      <CopyContractText code="eiam.unavailable" tag="span" />
-      <button type="button" class="btn btn--text" @click="reload">重试</button>
-    </p>
-
-    <!-- 表格 -->
+    <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，避免错误时残留空表格框 -->
     <div class="table-wrap">
-      <table v-if="store.items.length > 0" class="data-table">
+      <!-- 错误态（重试） -->
+      <div v-if="isError" class="state-error" role="alert">
+        <CopyContractText code="eiam.unavailable" tag="span" />
+        <button type="button" class="btn btn--text" @click="reload">重试</button>
+      </div>
+
+      <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
             <th>角色名</th>
@@ -327,6 +327,9 @@ function userCount(code: string): string {
         <div v-for="i in 5" :key="i" class="skeleton__row" />
       </div>
     </div>
+
+    <!-- 窄屏横向滚动提示：表格保留可读列宽后不再挤成竖排，需提示可左右滑动 -->
+    <p class="table-hint" aria-hidden="true">← 左右滑动查看全部列 →</p>
 
     <!-- 分页 -->
     <nav v-if="store.total > 0" class="pagination" aria-label="分页">
@@ -592,6 +595,7 @@ function userCount(code: string): string {
 
 .table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg-elevated);
   border-radius: 8px;
   min-height: 120px;
@@ -599,6 +603,9 @@ function userCount(code: string): string {
 
 .data-table {
   width: 100%;
+  // 窄屏保留可读最小列宽，超出容器由 .table-wrap 横向滚动；
+  // 缺这条时「角色名」「绑定策略数」表头会被压成 4~5 行竖排。
+  min-width: 680px;
   border-collapse: collapse;
   font-size: 13px;
 
@@ -607,6 +614,7 @@ function userCount(code: string): string {
     padding: 10px 12px;
     text-align: left;
     border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
   }
   th {
     color: var(--text-secondary);
@@ -614,6 +622,20 @@ function userCount(code: string): string {
   }
   td {
     color: var(--text-regular);
+  }
+}
+
+.table-hint {
+  display: none;
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .table-hint {
+    display: block;
   }
 }
 
@@ -627,6 +649,14 @@ function userCount(code: string): string {
   padding: 32px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+// 错误态：文案在上、重试动作在下一行（同行时「…请稍后重试」+「重试」会读成重复）
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .skeleton__row {

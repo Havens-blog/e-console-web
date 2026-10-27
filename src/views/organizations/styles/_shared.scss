@@ -97,6 +97,15 @@
   color: var(--text-secondary);
 }
 
+// 错误态：说明文案在上、重试动作在下一行。
+// 原先 span 与「重试」按钮同一行紧邻，渲染读作「身份服务暂不可用，请稍后重试重试」。
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
 .skeleton__row {
   height: 32px;
   margin: 4px 0;
