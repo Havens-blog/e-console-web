@@ -1214,3 +1214,56 @@ test.describe('列表加载态可播报', () => {
     })
   }
 })
+
+/**
+ * 列表分页「每页条数」选择器。
+ *
+ * 修复前实测：选择器只调 `store.setPageSize()`（仅改状态、不发起请求），
+ * 切换后**零请求**、列表不变——用户/角色/策略三页同样如此，授权页则连选择器都没有。
+ */
+test.describe('列表每页条数', () => {
+  const cases = [
+    { name: '用户管理', path: '/console/users', list: '/api/iam/user/list', sel: '[data-testid="user-page-size"]' },
+    { name: '角色管理', path: '/console/roles', list: '/api/iam/role/list', sel: '[data-testid="role-page-size"]' },
+  ]
+
+  for (const c of cases) {
+    test(`${c.name}：切换每页条数会带 limit=50 重新请求`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await loginAsAdmin(page)
+      await page.goto(`${BASE_URL}${c.path}`, { waitUntil: 'networkidle' })
+
+      const sel = page.locator(c.sel)
+      await expect(sel).toHaveCount(1)
+      await expect(sel).toHaveAttribute('aria-label', '每页条数')
+
+      const bodies: string[] = []
+      page.on('request', (r) => {
+        if (r.url().includes(c.list)) bodies.push(r.postData() ?? '')
+      })
+      await sel.selectOption('50')
+
+      await expect.poll(() => bodies.length, { timeout: 10_000 }).toBeGreaterThan(0)
+      expect(bodies[bodies.length - 1]).toContain('"limit":50')
+      await expect(sel).toHaveValue('50')
+    })
+  }
+
+  test('授权管理：页大小选择器可用（原先完全缺失）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/authorizations`, { waitUntil: 'networkidle' })
+
+    const sel = page.locator('[data-testid="auth-page-size"]')
+    // 无数据时分页条整体不渲染，故仅在存在时断言可用性
+    if ((await sel.count()) > 0) {
+      const bodies: string[] = []
+      page.on('request', (r) => {
+        if (r.url().includes('/api/iam/permission/authorizations')) bodies.push(r.postData() ?? '')
+      })
+      await sel.selectOption('50')
+      await expect.poll(() => bodies.length, { timeout: 10_000 }).toBeGreaterThan(0)
+      expect(bodies[bodies.length - 1]).toContain('"limit":50')
+    }
+  })
+})

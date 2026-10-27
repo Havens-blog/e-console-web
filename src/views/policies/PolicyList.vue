@@ -71,6 +71,15 @@ function changePage(p: number): void {
   void store.fetch();
 }
 
+/**
+ * 切换每页条数：store.setPageSize 只改状态、不发起请求，
+ * 原先模板里直接调它 → 选择器看起来变了但列表没变（实测 0 次请求）。
+ */
+function changePageSize(size: number): void {
+  store.setPageSize(size);
+  void store.fetch();
+}
+
 // ---- 列表加载 ----
 async function reload(): Promise<void> {
   await store.fetch();
@@ -475,8 +484,10 @@ const hasActiveFilters = computed(() => store.keyword !== "");
       <select
         :value="store.pageSize"
         class="input pagination__size"
+        data-testid="policy-page-size"
+        aria-label="每页条数"
         @change="
-          store.setPageSize(Number(($event.target as HTMLSelectElement).value))
+          changePageSize(Number(($event.target as HTMLSelectElement).value))
         "
       >
         <option :value="20">20 条/页</option>
