@@ -1507,3 +1507,55 @@ test.describe('组织页加载态可播报', () => {
     await expect(status).toHaveText('', { timeout: 10_000 })
   })
 })
+
+/**
+ * 详情页加载态可播报（R5 同类缺口）。
+ *
+ * 修复前实测：用户/角色详情加载中 `[role="status"]` 为 **0**，骨架带 `aria-hidden`，
+ * 只有 `aria-busy`：读屏在「进入详情页」这段等待里完全静默。
+ */
+test.describe('详情页加载态可播报', () => {
+  test('用户详情：加载中暴露 role=status，加载后清空', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/user/detail**', async (route) => {
+      await new Promise((r) => setTimeout(r, 1800))
+      await route.continue()
+    })
+    await page.goto(`${BASE_URL}/console/users/1`)
+
+    const status = page.locator('[role="status"]')
+    await expect(status).toHaveCount(1)
+    await expect(status).toHaveAttribute('aria-live', 'polite')
+    await expect(status).toContainText('正在加载用户详情')
+
+    const hidden = await status.evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return parseInt(cs.width) <= 1 && parseInt(cs.height) <= 1
+    })
+    expect(hidden, '状态区应视觉隐藏（sr-only）').toBe(true)
+
+    await page.unroute('**/api/iam/user/detail**')
+    await expect(page.locator('.detail-form')).toBeVisible({ timeout: 10_000 })
+    await expect(status).toHaveText('')
+  })
+
+  test('角色详情：加载中暴露 role=status', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/role/detail**', async (route) => {
+      await new Promise((r) => setTimeout(r, 1800))
+      await route.continue()
+    })
+    await page.goto(`${BASE_URL}/console/roles/admin`)
+
+    const status = page.locator('[role="status"]')
+    await expect(status).toHaveCount(1)
+    await expect(status).toContainText('正在加载角色详情')
+
+    await page.unroute('**/api/iam/role/detail**')
+    await expect(status).toHaveText('', { timeout: 10_000 })
+  })
+})

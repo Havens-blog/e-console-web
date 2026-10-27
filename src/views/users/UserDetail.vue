@@ -279,6 +279,12 @@ useErrorReveal(saveError, saveErrorRef);
       </button>
     </header>
 
+    <!-- 读屏播报：详情页初次加载与保存中经此常驻区域播报（视觉不可见）。
+         原先只有 aria-busy 与 aria-hidden 骨架，读屏在加载期间完全静默。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{ loading ? "正在加载用户详情…" : saving ? "正在保存…" : "" }}
+    </p>
+
     <p v-if="error" class="state-error" role="alert">
       <CopyContractText :code="error" tag="span" />
       <button type="button" class="btn btn--text" @click="back">
@@ -460,6 +466,19 @@ useErrorReveal(saveError, saveErrorRef);
   flex-direction: column;
   gap: 16px;
   color: var(--text-primary);
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .detail-head {
