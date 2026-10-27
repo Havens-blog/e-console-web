@@ -146,9 +146,19 @@ function applyMembersSearch(): void {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 
   &__search {
     min-width: 200px;
+    // 允许输入框在窄屏收缩，避免「搜索」按钮被挤成竖排两行
+    flex: 1 1 200px;
+  }
+}
+
+@media (max-width: 560px) {
+  .toolbar__search {
+    min-width: 0;
+    flex-basis: 160px;
   }
 }
 
@@ -159,6 +169,8 @@ function applyMembersSearch(): void {
 
 .data-table {
   width: 100%;
+  // 与列表页一致：窄屏保留可读列宽，超出容器横向滚动，避免逐字竖排
+  min-width: 480px;
   border-collapse: collapse;
   font-size: 13px;
 
@@ -167,6 +179,7 @@ function applyMembersSearch(): void {
     padding: 8px 10px;
     text-align: left;
     border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
   }
   th {
     color: var(--text-secondary);

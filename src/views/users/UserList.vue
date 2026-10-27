@@ -280,6 +280,10 @@ const isError = computed(
 const isEmpty = computed(
   () => !store.loading && store.items.length === 0 && store.error === null,
 );
+/** 是否存在生效中的筛选（空态区分「筛选无结果」与「本来无数据」用） */
+const hasActiveFilters = computed(
+  () => store.keyword !== "" || store.roleFilter !== "",
+);
 </script>
 
 <template>
@@ -326,15 +330,16 @@ const isEmpty = computed(
       </button>
     </div>
 
-    <!-- 错误态（重试） -->
-    <p v-if="isError" class="state-error" role="alert">
-      <CopyContractText code="eiam.unavailable" tag="span" />
-      <button type="button" class="btn btn--text" @click="reload">重试</button>
-    </p>
-
-    <!-- 表格 -->
+    <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，
+         避免错误态下方残留一个空表格框（原实现错误文案在框外，框内无内容） -->
     <div class="table-wrap">
-      <table v-if="store.items.length > 0" class="data-table">
+      <!-- 错误态（重试）：说明文案在上、动作在下一行，避免「…请稍后重试」与「重试」连读 -->
+      <div v-if="isError" class="state-error" role="alert">
+        <CopyContractText code="eiam.unavailable" tag="span" />
+        <button type="button" class="btn btn--text" @click="reload">重试</button>
+      </div>
+
+      <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
             <th>用户名</th>
@@ -389,14 +394,30 @@ const isEmpty = computed(
         </tbody>
       </table>
 
-      <!-- 空态 -->
-      <p v-else-if="isEmpty" class="state-empty">暂无用户数据</p>
+      <!-- 空态：区分「筛选无结果」与「本来就没有数据」，前者给一键清除筛选出口 -->
+      <div v-else-if="isEmpty" class="state-empty">
+        <template v-if="hasActiveFilters">
+          <p class="state-empty__text">没有匹配的用户，试试更换关键词或角色</p>
+          <button
+            type="button"
+            class="btn btn--text"
+            data-testid="clear-filters"
+            @click="resetFilters"
+          >
+            清除筛选
+          </button>
+        </template>
+        <p v-else class="state-empty__text">暂无用户数据</p>
+      </div>
 
       <!-- 加载骨架 -->
       <div v-else-if="store.loading" class="skeleton" aria-hidden="true">
         <div v-for="i in 5" :key="i" class="skeleton__row" />
       </div>
     </div>
+
+    <!-- 窄屏横向滚动提示：表格保留可读列宽后不再挤成竖排，需提示可左右滑动 -->
+    <p class="table-hint" aria-hidden="true">← 左右滑动查看全部列 →</p>
 
     <!-- 分页 -->
     <nav v-if="store.total > 0" class="pagination" aria-label="分页">
@@ -727,6 +748,7 @@ const isEmpty = computed(
 
 .table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg-elevated);
   border-radius: 8px;
   min-height: 120px;
@@ -734,6 +756,9 @@ const isEmpty = computed(
 
 .data-table {
   width: 100%;
+  // 窄屏（≤768）不用把列压扁：保留可读最小宽度，交给 .table-wrap 横向滚动。
+  // 缺这条时「所属租户」会被压到 37px，中文按字换行成竖排，一行行高 90px+。
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 13px;
 
@@ -742,6 +767,8 @@ const isEmpty = computed(
     padding: 10px 12px;
     text-align: left;
     border-bottom: 1px solid var(--border-subtle);
+    // 禁止逐字竖排（中文单元格在窄列里会一列一字）
+    white-space: nowrap;
   }
   th {
     color: var(--text-secondary);
@@ -749,6 +776,20 @@ const isEmpty = computed(
   }
   td {
     color: var(--text-regular);
+  }
+}
+
+.table-hint {
+  display: none;
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .table-hint {
+    display: block;
   }
 }
 
@@ -762,6 +803,27 @@ const isEmpty = computed(
   padding: 32px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+// 错误态：文案在上、重试动作在下一行。
+// 同处一行时文案「…请稍后重试」与紧邻的「重试」按钮会被读成「…重试重试」，
+// 上下列排后语义清晰（消息 = 说明，按钮 = 动作）。
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__text {
+    margin: 0;
+  }
 }
 
 .skeleton__row {

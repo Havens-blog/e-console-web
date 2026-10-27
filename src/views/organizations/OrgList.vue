@@ -148,9 +148,26 @@ onMounted(async () => {
   align-items: start;
 }
 
+// 窄屏（≤900）：双栏改单栏堆叠。
+// 原实现固定 2fr 3fr，叠加左栏 .org-tree{min-width:280px}，在 390px 视口下栅格最小宽度
+// 超出内容区，而 .main-area 为 overflow:hidden——右栏「组织详情 / 成员列表」被直接裁掉
+// 且无法横向滚动，等于不可达。单栏后左右两块按序堆叠，全部内容可滚动抵达。
+@media (max-width: 900px) {
+  .org-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .org-detail {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+}
+
+@media (max-width: 560px) {
+  .page-org-list {
+    padding: 16px;
+  }
 }
 </style>

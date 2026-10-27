@@ -176,6 +176,13 @@ defineExpose({ expandAndSelectFirst });
   min-width: 280px;
 }
 
+// 窄屏：解除 280px 下限，让组织树与右侧详情单栏堆叠时能随视口收窄
+@media (max-width: 900px) {
+  .org-tree {
+    min-width: 0;
+  }
+}
+
 .tree-body {
   max-height: 70vh;
   overflow-y: auto;
