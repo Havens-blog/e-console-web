@@ -31,6 +31,7 @@ import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { useCan } from "@/composables/useCan";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_ROLE, IAM_USER } from "@/config/permission-codes";
 
 const router = useRouter();
@@ -284,6 +285,16 @@ const isEmpty = computed(
 const hasActiveFilters = computed(
   () => store.keyword !== "" || store.roleFilter !== "",
 );
+
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const createDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(createDialogRef, { open: showCreate, onClose: closeCreate });
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  initialFocus: "[data-dialog-cancel]",
+});
 </script>
 
 <template>
@@ -456,7 +467,13 @@ const hasActiveFilters = computed(
 
     <!-- 新增 Dialog -->
     <div v-if="showCreate" class="dialog-overlay" @click.self="closeCreate">
-      <div class="dialog" role="dialog" aria-label="新增用户">
+      <div
+        ref="createDialogRef"
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="新增用户"
+      >
         <header class="dialog__head">
           <h3>新增用户</h3>
           <button type="button" class="btn btn--text" @click="closeCreate">
@@ -613,8 +630,10 @@ const hasActiveFilters = computed(
     <!-- 删除确认 Dialog（E11 依赖删除被拒 → 阻断计数、确认置灰） -->
     <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
       <div
+        ref="deleteDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
         :aria-label="`删除用户 ${deleteTarget.username}`"
       >
         <header class="dialog__head">
@@ -634,7 +653,13 @@ const hasActiveFilters = computed(
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDelete">
+          <!-- 危险操作弹窗：初始焦点落在「取消」而非「确认删除」，避免回车误删 -->
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDelete"
+          >
             取消
           </button>
           <button

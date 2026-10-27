@@ -267,3 +267,102 @@ test.describe('列表状态反馈', () => {
     await expect(page.locator('.state-empty')).toHaveCount(0)
   })
 })
+
+test.describe('弹窗键盘与焦点可访问性', () => {
+  /** 当前焦点落在哪个可识别元素上 */
+  async function activeInfo(page: Page) {
+    return page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      return {
+        tag: el?.tagName ?? null,
+        testid: el?.getAttribute('data-testid') ?? null,
+        text: (el?.textContent ?? '').trim().slice(0, 12),
+        insideDialog: !!el?.closest('[role="dialog"],[role="alertdialog"]'),
+      }
+    })
+  }
+
+  test('新增用户弹窗：焦点入窗、Tab 不逃逸、Escape 关闭、焦点归还', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}${USERS_PATH}`, { waitUntil: 'networkidle' })
+
+    const trigger = page.getByRole('button', { name: '新增用户', exact: true })
+    await trigger.focus()
+    await trigger.click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    // 修复前无 aria-modal、焦点仍留在触发按钮上
+    await expect(dialog).toHaveAttribute('aria-modal', 'true')
+
+    // 焦点落在首个输入项
+    const first = await activeInfo(page)
+    expect(first.testid).toBe('create-username')
+    expect(first.insideDialog).toBe(true)
+
+    // Tab 连续 6 次仍在弹窗内（修复前会跑到背景页链接）
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press('Tab')
+      expect((await activeInfo(page)).insideDialog).toBe(true)
+    }
+
+    // Escape 关闭（修复前无效，这是最直接的键盘可用性缺陷）
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+
+    // 焦点归还触发元素
+    const restored = await activeInfo(page)
+    expect(restored.text).toContain('新增用户')
+  })
+
+  test('删除确认弹窗：初始焦点落在「取消」，Escape 可关闭且不提交删除', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}${USERS_PATH}`, { waitUntil: 'networkidle' })
+
+    const rowsBefore = await page.locator('tbody tr').count()
+    await page.getByTestId('delete-user').first().click()
+
+    const confirm = page.getByRole('alertdialog')
+    await expect(confirm).toBeVisible()
+    await expect(confirm).toHaveAttribute('aria-modal', 'true')
+
+    // 危险操作：初始焦点必须是「取消」而不是「确认删除」，避免回车误删
+    expect((await activeInfo(page)).text).toBe('取消')
+
+    // Escape 关闭且未发起删除（行数不变）
+    await page.keyboard.press('Escape')
+    await expect(confirm).toHaveCount(0)
+    await expect(page.locator('tbody tr')).toHaveCount(rowsBefore)
+  })
+
+  test('点击遮罩仍可关闭弹窗（既有交互未被破坏）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}${USERS_PATH}`, { waitUntil: 'networkidle' })
+
+    await page.getByRole('button', { name: '新增用户', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.locator('.dialog-overlay').click({ position: { x: 5, y: 5 } })
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  })
+
+  test('角色管理「新增角色」：Escape 可关闭', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}${ROLES_PATH}`, { waitUntil: 'networkidle' })
+
+    await page.getByRole('button', { name: '新增角色', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    expect((await activeInfo(page)).testid).toBe('create-role-code')
+
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+  })
+})

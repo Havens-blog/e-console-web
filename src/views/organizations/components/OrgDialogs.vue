@@ -22,6 +22,7 @@ import {
 import { ApiError, type OrganizationNode } from "@/api/types";
 import { contractText, formatContractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 
 const store = useOrgListStore();
 
@@ -210,12 +211,31 @@ function errorMessage(err: unknown): string {
 
 // 页面经模板 ref 调用（触发点：组织树行内按钮、详情卡片动作按钮、页头「新增根组织」）
 defineExpose({ openCreateRoot, openCreateChild, openEdit, openDelete });
+
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const createDialogRef = ref<HTMLElement | null>(null);
+const editDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(createDialogRef, { open: showCreate, onClose: closeCreate });
+useDialogA11y(editDialogRef, { open: showEdit, onClose: closeEdit });
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
+  initialFocus: "[data-dialog-cancel]",
+});
 </script>
 
 <template>
   <!-- 新增子组织 Dialog -->
   <div v-if="showCreate" class="dialog-overlay" @click.self="closeCreate">
-    <div class="dialog" role="dialog" aria-label="新增组织">
+    <div
+      ref="createDialogRef"
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="新增组织"
+    >
       <header class="dialog__head">
         <h3>
           {{
@@ -279,7 +299,13 @@ defineExpose({ openCreateRoot, openCreateChild, openEdit, openDelete });
 
   <!-- 编辑 Dialog -->
   <div v-if="showEdit" class="dialog-overlay" @click.self="closeEdit">
-    <div class="dialog" role="dialog" aria-label="编辑组织">
+    <div
+      ref="editDialogRef"
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="编辑组织"
+    >
       <header class="dialog__head">
         <h3>编辑组织</h3>
         <button type="button" class="btn btn--text" @click="closeEdit">
@@ -336,8 +362,10 @@ defineExpose({ openCreateRoot, openCreateChild, openEdit, openDelete });
   <!-- 删除确认 Dialog（E11：阻断计数 + 确认置灰） -->
   <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
     <div
+      ref="deleteDialogRef"
       class="dialog dialog--sm"
       role="alertdialog"
+      aria-modal="true"
       :aria-label="`删除组织 ${deleteTarget.name}`"
     >
       <header class="dialog__head">
@@ -361,7 +389,12 @@ defineExpose({ openCreateRoot, openCreateChild, openEdit, openDelete });
         </p>
       </div>
       <div class="dialog__actions">
-        <button type="button" class="btn btn--ghost" @click="closeDelete">
+        <button
+          type="button"
+          class="btn btn--ghost"
+          data-dialog-cancel
+          @click="closeDelete"
+        >
           取消
         </button>
         <button

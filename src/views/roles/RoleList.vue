@@ -30,6 +30,7 @@ import { ApiError } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_ROLE } from "@/config/permission-codes";
 
 const router = useRouter();
@@ -204,6 +205,17 @@ function closeDelete(): void {
   deleteBlocked.value = "";
 }
 
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const createDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(createDialogRef, { open: showCreate, onClose: closeCreate });
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
+  initialFocus: "[data-dialog-cancel]",
+});
+
 // ---- 编辑跳转（AC-3：跳 /roles/:id 详情/绑定页；:id 实为 role code，eiam detail 按 code）----
 function gotoDetail(role: { code: string }): void {
   void router.push(`/roles/${encodeURIComponent(role.code)}`);
@@ -368,7 +380,13 @@ function userCount(code: string): string {
 
     <!-- 新增 Dialog（AC-2）-->
     <div v-if="showCreate" class="dialog-overlay" @click.self="closeCreate">
-      <div class="dialog" role="dialog" aria-label="新增角色">
+      <div
+        ref="createDialogRef"
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="新增角色"
+      >
         <header class="dialog__head">
           <h3>新增角色</h3>
           <button type="button" class="btn btn--text" @click="closeCreate">
@@ -457,8 +475,10 @@ function userCount(code: string): string {
     <!-- 删除确认 Dialog（E11 依赖删除被拒 → 阻断计数、确认置灰） -->
     <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
       <div
+        ref="deleteDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
         :aria-label="`删除角色 ${deleteTarget.name}`"
       >
         <header class="dialog__head">
@@ -478,7 +498,12 @@ function userCount(code: string): string {
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDelete"
+          >
             取消
           </button>
           <button
