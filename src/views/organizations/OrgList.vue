@@ -83,6 +83,12 @@ onMounted(async () => {
       </button>
     </header>
 
+    <!-- 读屏播报：组织树初次加载与刷新都经此常驻区域播报（视觉不可见）。
+         原先只有 aria-busy 与骨架，读屏得不到「正在加载」信息（与列表页 R5 同类问题）。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{ store.loading ? "正在加载组织树…" : "" }}
+    </p>
+
     <!-- 错误态（重试） -->
     <p v-if="isError" class="state-error" role="alert">
       <CopyContractText code="eiam.unavailable" tag="span" />
@@ -139,6 +145,19 @@ onMounted(async () => {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .org-layout {

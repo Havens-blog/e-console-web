@@ -1473,3 +1473,37 @@ test.describe('弹窗栈', () => {
     expect((await snapshot()).inert).toBe(0)
   })
 })
+
+/**
+ * 组织管理页加载态可播报（R5 同类缺口）。
+ *
+ * 修复前实测：加载中 `[role="status"]` 数量为 **0**，只有 `aria-busy` 与骨架，
+ * 读屏得不到「正在加载」信息（列表页已在 R5 修过，组织页当时漏掉）。
+ */
+test.describe('组织页加载态可播报', () => {
+  test('加载中暴露 role=status，加载后清空', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/department/list**', async (route) => {
+      await new Promise((r) => setTimeout(r, 1800))
+      await route.continue()
+    })
+    await page.goto(`${BASE_URL}/console/organizations`)
+
+    const status = page.locator('[role="status"]')
+    await expect(status).toHaveCount(1)
+    await expect(status).toHaveAttribute('aria-live', 'polite')
+    await expect(status).toContainText('正在加载组织树')
+
+    // sr-only：视觉不可见、仍在无障碍树
+    const hidden = await status.evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return parseInt(cs.width) <= 1 && parseInt(cs.height) <= 1
+    })
+    expect(hidden, '状态区应视觉隐藏（sr-only）').toBe(true)
+
+    await page.unroute('**/api/iam/department/list**')
+    await expect(status).toHaveText('', { timeout: 10_000 })
+  })
+})
