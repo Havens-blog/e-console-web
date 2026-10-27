@@ -1301,3 +1301,50 @@ test.describe('加载前后布局稳定', () => {
     expect(afterLoad).toBe(duringLoad)
   })
 })
+
+/**
+ * 弹窗背景隔离（R9）。
+ *
+ * 修复前实测：弹窗打开时 `[inert]` 数量为 0，背景仍有 35 个可聚焦元素能被脚本聚焦
+ * （`document.activeElement` 一度落在侧栏 logo 上）——焦点陷阱只管 Tab，
+ * 管不住读屏虚拟光标，用户能「读穿」弹窗浏览后面的页面。
+ */
+test.describe('弹窗背景隔离', () => {
+  test('打开时背景 inert 且不可聚焦；三种关闭方式都还原', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+
+    const inertCount = () => page.evaluate(() => document.querySelectorAll('[inert]').length)
+    const bgFocusable = () =>
+      page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]')
+        const target = [...document.querySelectorAll('a[href], button, input, select')].find(
+          (el) => el.offsetParent !== null && (!dlg || !dlg.contains(el)),
+        )
+        if (!target) return null
+        target.focus()
+        return document.activeElement === target
+      })
+
+    const trigger = page.getByRole('button', { name: '新增用户', exact: true })
+    const dialog = page.locator('[role="dialog"]')
+
+    for (const how of ['close', 'esc', 'cancel'] as const) {
+      await trigger.click()
+      await expect(dialog).toBeVisible()
+
+      expect(await inertCount(), '打开时背景应被 inert 隔离').toBeGreaterThan(0)
+      expect(await bgFocusable(), '背景不应可被聚焦').toBe(false)
+
+      if (how === 'esc') await page.keyboard.press('Escape')
+      else if (how === 'cancel') await dialog.getByRole('button', { name: '取消', exact: true }).click()
+      else await page.getByRole('button', { name: '关闭' }).first().click()
+
+      await expect(dialog).toHaveCount(0)
+      expect(await inertCount(), `关闭（${how}）后 inert 必须清空`).toBe(0)
+      // 焦点归还触发按钮
+      await expect(trigger).toBeFocused()
+    }
+  })
+})

@@ -127,4 +127,66 @@ describe('useDialogA11y', () => {
     expect(document.activeElement).toBe(trigger)
     wrapper.unmount()
   })
+
+  /**
+   * 背景隔离：焦点陷阱只解决 Tab，管不住读屏虚拟光标。
+   * 实测弹窗打开时背景仍有 35 个可聚焦元素能被脚本聚焦，读屏可「读穿」弹窗。
+   */
+  it('打开后把弹窗外节点标记为 inert + aria-hidden', async () => {
+    // 额外放一个「背景」节点，模拟页面主体
+    const background = document.createElement('main')
+    background.id = 'bg'
+    background.innerHTML = '<button id="bg-btn">bg</button>'
+    document.body.appendChild(background)
+
+    const { wrapper } = mountDialog()
+    const trigger = document.getElementById('trigger') as HTMLElement
+    trigger.focus()
+    await wrapper.find('#trigger').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    // 背景节点被隔离
+    expect(background.hasAttribute('inert')).toBe(true)
+    expect(background.getAttribute('aria-hidden')).toBe('true')
+    // 弹窗自身不受影响
+    const dlg = document.getElementById('dlg') as HTMLElement
+    expect(dlg.hasAttribute('inert')).toBe(false)
+    expect(dlg.hasAttribute('aria-hidden')).toBe(false)
+
+    pressKey('Escape')
+    await nextTick()
+    await nextTick()
+
+    // 关闭后完全还原
+    expect(background.hasAttribute('inert')).toBe(false)
+    expect(background.hasAttribute('aria-hidden')).toBe(false)
+
+    background.remove()
+    wrapper.unmount()
+  })
+
+  it('关闭后还原时保留节点原有的 aria-hidden 值', async () => {
+    const background = document.createElement('main')
+    background.id = 'bg'
+    // 原本就带 aria-hidden 的节点（例如装饰层），关闭后不能被清成无属性
+    background.setAttribute('aria-hidden', 'false')
+    document.body.appendChild(background)
+
+    const { wrapper } = mountDialog()
+    await wrapper.find('#trigger').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(background.getAttribute('aria-hidden')).toBe('true')
+
+    pressKey('Escape')
+    await nextTick()
+    await nextTick()
+
+    expect(background.hasAttribute('inert')).toBe(false)
+    expect(background.getAttribute('aria-hidden')).toBe('false')
+
+    background.remove()
+    wrapper.unmount()
+  })
 })
