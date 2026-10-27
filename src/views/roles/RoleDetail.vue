@@ -588,10 +588,13 @@ useErrorReveal(saveError, saveErrorRef);
   font-size: 12px;
 }
 
+// 错误态：与「用户详情」统一为红色告警条（原先只有一行居中小灰字，夹在表单中间几乎看不见）
 .state-error {
-  padding: 32px;
-  text-align: center;
-  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: 13px;
 }
 
 .skeleton__row {
@@ -613,6 +616,9 @@ useErrorReveal(saveError, saveErrorRef);
   display: flex;
   flex-direction: column;
   gap: 20px;
+  // 长表单收窄阅读宽度：原先通栏（1440 下 input 宽 1081px），长句跨整屏难读。
+  // 用户详情是 640px；角色详情含「绑定策略/已绑用户」列表，略放宽到 860px。
+  max-width: 860px;
 }
 
 .form-section {
