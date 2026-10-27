@@ -30,6 +30,7 @@ import { ApiError } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
+import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_ROLE } from "@/config/permission-codes";
 
 const router = useRouter();
@@ -204,6 +205,17 @@ function closeDelete(): void {
   deleteBlocked.value = "";
 }
 
+// ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
+const createDialogRef = ref<HTMLElement | null>(null);
+const deleteDialogRef = ref<HTMLElement | null>(null);
+useDialogA11y(createDialogRef, { open: showCreate, onClose: closeCreate });
+useDialogA11y(deleteDialogRef, {
+  open: computed(() => deleteTarget.value !== null),
+  onClose: closeDelete,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
+  initialFocus: "[data-dialog-cancel]",
+});
+
 // ---- 编辑跳转（AC-3：跳 /roles/:id 详情/绑定页；:id 实为 role code，eiam detail 按 code）----
 function gotoDetail(role: { code: string }): void {
   void router.push(`/roles/${encodeURIComponent(role.code)}`);
@@ -216,6 +228,8 @@ const isError = computed(
 const isEmpty = computed(
   () => !store.loading && store.items.length === 0 && store.error === null,
 );
+/** 是否存在生效中的筛选（空态区分「筛选无结果」与「本来无数据」用） */
+const hasActiveFilters = computed(() => store.keyword !== "");
 
 /** 绑定策略数展示（enrichCounts 回填；cap 100 超限显示 100+） */
 function policyCount(code: string): string {
@@ -320,7 +334,21 @@ function userCount(code: string): string {
       </table>
 
       <!-- 空态 -->
-      <p v-else-if="isEmpty" class="state-empty">暂无角色数据</p>
+      <!-- 空态：区分「筛选无结果」与「本来就没有数据」，前者给一键清除筛选出口 -->
+      <div v-else-if="isEmpty" class="state-empty">
+        <template v-if="hasActiveFilters">
+          <p class="state-empty__text">没有匹配的角色，试试更换角色名关键词</p>
+          <button
+            type="button"
+            class="btn btn--text"
+            data-testid="clear-filters"
+            @click="resetFilters"
+          >
+            清除筛选
+          </button>
+        </template>
+        <p v-else class="state-empty__text">暂无角色数据</p>
+      </div>
 
       <!-- 加载骨架 -->
       <div v-else-if="store.loading" class="skeleton" aria-hidden="true">
@@ -368,10 +396,21 @@ function userCount(code: string): string {
 
     <!-- 新增 Dialog（AC-2）-->
     <div v-if="showCreate" class="dialog-overlay" @click.self="closeCreate">
-      <div class="dialog" role="dialog" aria-label="新增角色">
+      <div
+        ref="createDialogRef"
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="新增角色"
+      >
         <header class="dialog__head">
           <h3>新增角色</h3>
-          <button type="button" class="btn btn--text" @click="closeCreate">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeCreate"
+          >
             ✕
           </button>
         </header>
@@ -457,18 +496,26 @@ function userCount(code: string): string {
     <!-- 删除确认 Dialog（E11 依赖删除被拒 → 阻断计数、确认置灰） -->
     <div v-if="deleteTarget" class="dialog-overlay" @click.self="closeDelete">
       <div
+        ref="deleteDialogRef"
         class="dialog dialog--sm"
         role="alertdialog"
+        aria-modal="true"
+        aria-describedby="delete-role-desc"
         :aria-label="`删除角色 ${deleteTarget.name}`"
       >
         <header class="dialog__head">
           <h3>删除角色</h3>
-          <button type="button" class="btn btn--text" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeDelete"
+          >
             ✕
           </button>
         </header>
         <div class="dialog__body">
-          <p>
+          <p id="delete-role-desc">
             确认删除角色 <strong>{{ deleteTarget.name }}</strong
             >？此操作不可撤销。
           </p>
@@ -478,7 +525,12 @@ function userCount(code: string): string {
           </p>
         </div>
         <div class="dialog__actions">
-          <button type="button" class="btn btn--ghost" @click="closeDelete">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            @click="closeDelete"
+          >
             取消
           </button>
           <button
@@ -659,6 +711,17 @@ function userCount(code: string): string {
   gap: 8px;
 }
 
+.state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__text {
+    margin: 0;
+  }
+}
+
 .skeleton__row {
   height: 40px;
   margin: 8px 12px;
@@ -710,6 +773,11 @@ function userCount(code: string): string {
     justify-content: space-between;
     padding: 16px 20px;
     border-bottom: 1px solid var(--border-subtle);
+    // 弹窗内部滚动时标题与 ✕ 吸顶，避免滚出可视区后无关闭入口
+    position: sticky;
+    top: 0;
+    background: var(--bg-elevated);
+    z-index: 1;
     h3 {
       margin: 0;
       font-size: 16px;

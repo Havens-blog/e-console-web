@@ -50,6 +50,8 @@ export interface ProfileData {
   tenants: Tenant[];
   /** 0 = 无租户上下文（零租户用户 / profile 未拉取） */
   currentTenantId: number;
+  /** 用户个人偏好的默认登录租户（0=未设置）；下次登录 eiam 优先落入 */
+  defaultTenantId: number;
   isAdmin: boolean;
   /** 多租户分流信号；F-1：前端自算 tenants.length > 1，不取 profile 恒 false 字段 */
   mustSelectTenant: boolean;
@@ -72,6 +74,7 @@ interface EiamProfileData {
   permissions?: unknown;
   tenants?: { id?: number; name?: string; code?: string; domain?: string }[];
   current_tenant_id?: number;
+  default_tenant_id?: number;
   is_admin?: boolean;
   // must_select_tenant 恒 false（F-1），不读取
 }
@@ -125,6 +128,7 @@ function mapProfile(rawData: unknown): ProfileData | null {
       : [],
     tenants,
     currentTenantId: asNumber(rawData.current_tenant_id),
+    defaultTenantId: asNumber(rawData.default_tenant_id),
     isAdmin: rawData.is_admin === true,
     // F-1：profile must_select_tenant 恒 false，前端自算 tenants.length > 1
     mustSelectTenant: tenants.length > 1,
@@ -153,8 +157,15 @@ export const useUserStore = defineStore("user", () => {
   const permissions = ref<string[]>([]);
   const tenants = ref<Tenant[]>([]);
   const isAdmin = ref<boolean>(false);
+  /** 用户个人偏好的默认登录租户（0=未设置）；由 fetchProfile 从 profile 同步 */
+  const defaultTenantId = ref<number>(0);
   const loading = ref<boolean>(false);
   const error = ref<string | null>(null);
+  /**
+   * eiam 鉴权服务不可用（profile 拉取失败且 kind=unavailable，即 5xx/网络错，非 401 未认证）。
+   * 守卫据此裁决：401→跳登录 vs 5xx→放行工作台渲染降级横幅（watchalert F 产品缺口，tech-design §7）。
+   */
+  const authUnavailable = ref<boolean>(false);
 
   /**
    * 多租户分流信号（F-1：前端自算 tenants.length > 1，不取 profile 恒 false 字段）。
@@ -206,14 +217,18 @@ export const useUserStore = defineStore("user", () => {
       permissions.value = mapped.permissions;
       tenants.value = mapped.tenants;
       isAdmin.value = mapped.isAdmin;
+      authUnavailable.value = false;
       // 租户上下文同步到 tenant store（唯一归属）——经 setCurrentTenantId 写入
       useTenantStore().setCurrentTenantId(mapped.currentTenantId);
+      defaultTenantId.value = mapped.defaultTenantId;
       return true;
     } catch (err) {
       // 被 abort 的在途请求不算错误（新一轮 fetch 已接管）
       if (abort.signal.aborted) return false;
       resetDerivedState();
       error.value = errorMessage(err);
+      // 401/业务错 → unauthorized 等（守卫跳登录）；5xx/网络错 → unavailable（守卫放行工作台降级横幅）
+      authUnavailable.value = err instanceof ApiError && err.kind === "unavailable";
       return false;
     } finally {
       // 仅当本请求仍是当前在途请求时复位 loading/profileAbort；
@@ -231,7 +246,9 @@ export const useUserStore = defineStore("user", () => {
     permissions.value = [];
     tenants.value = [];
     isAdmin.value = false;
+    defaultTenantId.value = 0;
     error.value = null;
+    authUnavailable.value = false;
   }
 
   /** 权限码判定（菜单裁剪 / 按钮隐藏 / 路由守卫 ③ 裁剪同口径） */
@@ -257,8 +274,10 @@ export const useUserStore = defineStore("user", () => {
     isAdmin,
     mustSelectTenant,
     currentTenantId,
+    defaultTenantId,
     loading,
     error,
+    authUnavailable,
     fetchProfile,
     hasPermission,
     resetState,

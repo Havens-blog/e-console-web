@@ -25,6 +25,12 @@ export interface ListQuery {
   limit: number
   /** 关键字（空串 = 不过滤） */
   keyword: string
+  /**
+   * 状态筛选（仅租户列表等支持该维度的端点消费；缺省 / 0 = 不过滤）。
+   * 语义：0=全部、1=启用(active)、2=禁用(disable)；其他值由后端返回空结果（契约 §2.3）。
+   * 可选：各 list 端点按自身能力决定是否放进请求体（租户见 api/tenants.ts listTenants）。
+   */
+  status?: number
 }
 
 /** 统一分页归一形：api 层把 eiam 的 `{total, users|roles|tenants|...}` 收敛为 items */

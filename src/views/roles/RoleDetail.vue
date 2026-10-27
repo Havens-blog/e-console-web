@@ -26,7 +26,8 @@
  * - 角色 code 创建后不可改（update 只读回传原 code）。
  */
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
+import { ElMessageBox } from "element-plus";
 import { useRoleListStore } from "@/stores/roleList";
 import { useUserStore } from "@/stores/user";
 import {
@@ -40,6 +41,7 @@ import { ApiError, type Role, type User } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
+import { useErrorReveal } from "@/composables/useErrorReveal";
 import { IAM_POLICY, IAM_ROLE } from "@/config/permission-codes";
 
 const route = useRoute();
@@ -253,6 +255,7 @@ async function save(): Promise<void> {
       }
     }
     // 保存成功 → 返回列表（store.update/fetch 已刷新，列表 ≤2s 刷新）
+    allowLeave.value = true; // 保存成功是合法离开，跳过未保存拦截
     void router.push("/roles");
   } catch (err) {
     saveError.value = errorMessage(err);
@@ -264,6 +267,37 @@ async function save(): Promise<void> {
 function back(): void {
   void router.push("/roles");
 }
+
+/**
+ * 未保存离开拦截（唯一入口，覆盖四条路径）：
+ * 「取消」按钮、「返回角色列表」、侧栏跳转、浏览器后退——最终都走路由跳转，
+ * 故用 onBeforeRouteLeave 一处覆盖。原先四条路径全部静默丢弃编辑（审计实测）。
+ * 保存成功后先置 allowLeave，避免「保存→返回列表」被自己的守卫拦住。
+ */
+const allowLeave = ref(false);
+onBeforeRouteLeave(async () => {
+  if (allowLeave.value || !hasChanges.value) return true;
+  try {
+    await ElMessageBox.confirm(
+      "当前修改尚未保存，离开将丢失这些改动。",
+      "有未保存的修改",
+      {
+        type: "warning",
+        confirmButtonText: "放弃修改并离开",
+        cancelButtonText: "继续编辑",
+        distinguishCancelAndClose: true,
+      },
+    );
+    return true;
+  } catch {
+    // 取消 / 关闭：留在当前页继续编辑
+    return false;
+  }
+});
+
+// ---- 保存失败必须被看见：滚入视口 + 聚焦（窄屏滚到底提交时，提示原先在视口外）----
+const saveErrorRef = ref<HTMLElement | null>(null);
+useErrorReveal(saveError, saveErrorRef);
 </script>
 
 <template>
@@ -297,7 +331,14 @@ function back(): void {
     </div>
 
     <form v-else-if="role" class="detail-form" @submit.prevent="save">
-      <p v-if="saveError" class="form-error" role="alert">
+      <p
+        v-if="saveError"
+        ref="saveErrorRef"
+        class="form-error"
+        role="alert"
+        tabindex="-1"
+        data-testid="save-error"
+      >
         <CopyContractText :code="saveError" tag="span" />
       </p>
 
@@ -576,10 +617,13 @@ function back(): void {
   font-size: 12px;
 }
 
+// 错误态：与「用户详情」统一为红色告警条（原先只有一行居中小灰字，夹在表单中间几乎看不见）
 .state-error {
-  padding: 32px;
-  text-align: center;
-  color: var(--text-secondary);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  font-size: 13px;
 }
 
 .skeleton__row {
@@ -601,6 +645,9 @@ function back(): void {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  // 长表单收窄阅读宽度：原先通栏（1440 下 input 宽 1081px），长句跨整屏难读。
+  // 用户详情是 640px；角色详情含「绑定策略/已绑用户」列表，略放宽到 860px。
+  max-width: 860px;
 }
 
 .form-section {

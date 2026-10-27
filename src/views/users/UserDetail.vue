@@ -21,7 +21,8 @@
  * - G-9：状态仅 active/disable/unknown（无 locked）。
  */
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
+import { ElMessageBox } from "element-plus";
 import { useUserListStore } from "@/stores/userList";
 import { useUserStore } from "@/stores/user";
 import { getUserDetail, listRoles } from "@/api/users";
@@ -30,6 +31,7 @@ import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
 import { useCan } from "@/composables/useCan";
+import { useErrorReveal } from "@/composables/useErrorReveal";
 import { IAM_ROLE, IAM_USER } from "@/config/permission-codes";
 
 const route = useRoute();
@@ -106,6 +108,40 @@ function toggleRole(code: string): void {
   else selectedRoleCodes.value.push(code);
 }
 
+/**
+ * 状态切换：切到「禁用」前必须二次确认。
+ *
+ * 原先 `<select v-model="status">` 一选「禁用」即改本地状态，保存后账号直接不可登录，
+ * 既无确认也无影响说明——与列表页「危险操作先确认」的约定不一致（审计实测：零提示）。
+ * 这里拦截 change：确认才落地，取消则把 DOM 里的选中值回滚到原状态。
+ */
+async function onStatusChange(event: Event): Promise<void> {
+  const el = event.target as HTMLSelectElement;
+  const next = el.value as "active" | "disable";
+  if (next !== "disable") {
+    status.value = next;
+    return;
+  }
+  const username = user.value?.username ?? "";
+  try {
+    await ElMessageBox.confirm(
+      `禁用后「${username}」将无法登录，且其已建立的会话会在下次鉴权时失效。确认禁用？`,
+      "确认禁用账号",
+      {
+        type: "warning",
+        // 措辞显式写明动作，配合上方后果说明降低误确认风险
+        confirmButtonText: "确认禁用",
+        cancelButtonText: "取消",
+        distinguishCancelAndClose: true,
+      },
+    );
+    status.value = "disable";
+  } catch {
+    // 取消 / 关闭：回滚 DOM 选中值，本地状态保持原值
+    el.value = status.value;
+  }
+}
+
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code !== null) {
@@ -176,6 +212,7 @@ async function save(): Promise<void> {
       return;
     }
     // 保存成功 → 返回列表（store.update 内部已 fetch，列表 ≤2s 刷新）
+    allowLeave.value = true; // 保存成功是合法离开，跳过未保存拦截
     void router.push("/users");
   } catch (err) {
     saveError.value = errorMessage(err);
@@ -188,8 +225,39 @@ function back(): void {
   void router.push("/users");
 }
 
+/**
+ * 未保存离开拦截（唯一入口，覆盖四条路径）：
+ * 「取消」按钮、「返回列表」、侧栏跳转、浏览器后退——它们最终都走路由跳转，
+ * 因此用 onBeforeRouteLeave 一处覆盖即可。原先四条路径全部静默丢弃编辑（审计实测）。
+ * 保存成功后先置 allowLeave，避免「保存→返回列表」被自己的守卫拦住。
+ */
+const allowLeave = ref(false);
+onBeforeRouteLeave(async () => {
+  if (allowLeave.value || !hasChanges.value) return true;
+  try {
+    await ElMessageBox.confirm(
+      "当前修改尚未保存，离开将丢失这些改动。",
+      "有未保存的修改",
+      {
+        type: "warning",
+        confirmButtonText: "放弃修改并离开",
+        cancelButtonText: "继续编辑",
+        distinguishCancelAndClose: true,
+      },
+    );
+    return true;
+  } catch {
+    // 取消 / 关闭：留在当前页继续编辑
+    return false;
+  }
+});
+
 // ---- passkey 绑定态展示（G-2/G-3 降级：bound-state display）----
 const passkeyBound = computed(() => user.value?.passkeyRegistered ?? false);
+
+// ---- 保存失败必须被看见：滚入视口 + 聚焦（窄屏滚到底提交时，提示原先在视口外）----
+const saveErrorRef = ref<HTMLElement | null>(null);
+useErrorReveal(saveError, saveErrorRef);
 </script>
 
 <template>
@@ -223,7 +291,14 @@ const passkeyBound = computed(() => user.value?.passkeyRegistered ?? false);
     </div>
 
     <form v-else-if="user" class="detail-form" @submit.prevent="save">
-      <p v-if="saveError" class="form-error" role="alert">
+      <p
+        v-if="saveError"
+        ref="saveErrorRef"
+        class="form-error"
+        role="alert"
+        tabindex="-1"
+        data-testid="save-error"
+      >
         <CopyContractText :code="saveError" tag="span" />
       </p>
 
@@ -243,17 +318,16 @@ const passkeyBound = computed(() => user.value?.passkeyRegistered ?? false);
         <label class="field">
           <span class="field__label">登录方式</span>
           <input :value="user.loginMethod" type="text" class="input" readonly />
-          <span class="muted"
-            >list/detail 不直出，缺省 password；passkey 绑定态见下方区块</span
-          >
+          <span class="muted">当前账号的登录方式；通行密钥绑定状态见下方</span>
         </label>
         <label class="field">
           <span class="field__label">状态</span>
           <select
-            v-model="status"
+            :value="status"
             class="input"
             data-testid="detail-status"
             :disabled="!canEditUser"
+            @change="onStatusChange"
           >
             <option value="active">启用</option>
             <option value="disable">禁用</option>
@@ -336,7 +410,7 @@ const passkeyBound = computed(() => user.value?.passkeyRegistered ?? false);
         </div>
         <div class="field">
           <span class="field__label">所属组织</span>
-          <span class="muted">—（无数据源，待 eiam 补组织 ref）</span>
+          <span class="muted">—（组织信息暂未接入用户详情）</span>
         </div>
       </fieldset>
 
@@ -355,14 +429,11 @@ const passkeyBound = computed(() => user.value?.passkeyRegistered ?? false);
             }}</span>
           </div>
           <p class="muted passkey-hint">
-            管理员代发起 passkey 注册/撤销暂不可用（G-2/G-3，待 eiam
-            排期补齐）。 请引导用户走 eiam 既有本人自助注册流程完成绑定。
+            管理员暂不能代用户发起通行密钥的注册或撤销，请引导用户在其本人账号下完成自助绑定。
           </p>
           <p class="muted passkey-hint">
-            设备丢失重绑：撤销原绑定 → 重新引导；passkey
-            为唯一登录方式且回收时，
-            账号恢复走管理员重置密码路径（E1，reset_password 端点待 eiam
-            排期补齐，G-1）。
+            设备丢失需重绑时：由用户先撤销原绑定再重新引导；若通行密钥是唯一登录方式，
+            可通过管理员重置密码恢复账号访问。
           </p>
         </div>
       </fieldset>

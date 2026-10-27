@@ -11,7 +11,13 @@ export type {
   PasskeyRegistrationSession,
   SessionClaims,
 } from "./auth";
-export type { Organization, OrganizationNode, Tenant, User } from "./identity";
+export type {
+  Organization,
+  OrganizationNode,
+  Tenant,
+  TenantMember,
+  User,
+} from "./identity";
 export type { ConnParams, IdentitySource } from "./identity-source";
 export type {
   Authorization,

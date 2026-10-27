@@ -82,6 +82,11 @@ const focusId = computed<number | null>(() => {
 function onTreeKeydown(e: KeyboardEvent): void {
   const rows = visibleRows.value;
   if (rows.length === 0) return;
+  // 焦点落在行内动作按钮（＋/编辑/删除）时不接管按键：
+  // 本处理器挂在 .tree-body（祖先，冒泡阶段）并对 Enter preventDefault，
+  // 会把按钮的「Enter 激活」默认行为一起吞掉 —— 键盘能 Tab 到按钮却按不开弹窗。
+  const target = e.target as HTMLElement | null;
+  if (target?.closest?.(".tree__actions")) return;
   if (e.key === "ArrowDown") {
     e.preventDefault();
     focusIndex.value = Math.min(focusIndex.value + 1, rows.length - 1);

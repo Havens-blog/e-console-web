@@ -139,7 +139,7 @@ defineExpose({ expandAndSelectFirst });
                   :title="
                     store.canAddChild(row.node.id).reason || '新增子组织'
                   "
-                  tabindex="-1"
+                  aria-label="新增子组织"
                   @click.stop="emit('create-child', row.node)"
                 >
                   ＋
@@ -147,7 +147,6 @@ defineExpose({ expandAndSelectFirst });
                 <button
                   type="button"
                   class="btn btn--text btn--sm"
-                  tabindex="-1"
                   @click.stop="emit('edit', row.node)"
                 >
                   编辑
@@ -155,7 +154,6 @@ defineExpose({ expandAndSelectFirst });
                 <button
                   type="button"
                   class="btn btn--text btn--sm btn--danger"
-                  tabindex="-1"
                   @click.stop="emit('delete', row.node)"
                 >
                   删除
@@ -250,12 +248,19 @@ defineExpose({ expandAndSelectFirst });
 }
 
 .tree__actions {
-  display: none;
+  // 常驻占位 + 透明，而非 display:none：
+  // display:none 会让按钮脱离 Tab 序，键盘用户无法打开「＋/编辑/删除」，
+  // 且弹窗关闭时焦点无法归还（目标不可聚焦 → 落到 body）。
+  display: inline-flex;
   gap: 2px;
   flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
 
-.tree__row:hover .tree__actions {
-  display: inline-flex;
+// 鼠标悬停或键盘焦点进入该行时显形（聚焦到按钮本身也会触发 :focus-within）
+.tree__row:hover .tree__actions,
+.tree__row:focus-within .tree__actions {
+  opacity: 1;
 }
 </style>
