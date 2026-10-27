@@ -321,10 +321,16 @@ const isEmpty = computed(
       </button>
     </header>
 
-    <!-- 读屏播报：初次加载、搜索/翻页刷新都经此常驻区域播报（视觉不可见）。
-         原先只有 aria-busy 变化，且骨架带 aria-hidden，读屏得不到「正在加载」信息。 -->
+    <!-- 读屏播报：加载中 / 空结果 / 结果条数都经此常驻区域播报（视觉不可见）。
+         本页无筛选条件，空态固定为「暂无身份源配置」。 -->
     <p class="sr-only" role="status" aria-live="polite">
-      {{ store.loading ? "正在加载身份源列表…" : "" }}
+      {{
+        store.loading
+          ? "正在加载身份源列表…"
+          : isEmpty
+            ? "暂无身份源配置"
+            : `共 ${store.total} 条`
+      }}
     </p>
 
     <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，

@@ -1208,9 +1208,9 @@ test.describe('列表加载态可播报', () => {
       })
       expect(hidden, '状态区应视觉隐藏（sr-only）').toBe(true)
 
-      // 加载完成后清空，确保下次加载能再次触发播报
+      // 加载完成后播报结果摘要（空态文案或「共 N 条」），不再静默
       await page.unroute(c.list)
-      await expect(status).toHaveText('', { timeout: 10_000 })
+      await expect(status).toHaveText(/^(共 \d+ 条|暂无.*数据|没有匹配的.*)$/, { timeout: 10_000 })
     })
   }
 })
@@ -1604,5 +1604,31 @@ test.describe('403 页', () => {
     )
     expect(overflow).toBe(false)
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+  })
+})
+
+/**
+ * 列表结果摘要可播报。
+ *
+ * 修复前实测：加载完成与「搜索无结果」时状态区文案都是空串，
+ * 而 `.state-empty` 不在 live region 内——读屏既不知道回来几条，也不知道是没搜到。
+ */
+test.describe('列表结果摘要可播报', () => {
+  test('用户页：加载完成播报条数，搜索无结果播报空态', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+
+    const status = page.locator('[role="status"]')
+    // 有数据时播报条数
+    await expect(status).toHaveText(/^共 \d+ 条$/, { timeout: 15_000 })
+
+    // 搜一个必然无命中的词（后端支持用户搜索）
+    await page.getByPlaceholder(/搜索/).first().fill('zzz-no-such-user-zzz')
+    await page.getByRole('button', { name: '搜索', exact: true }).first().click()
+
+    await expect(status).toHaveText(/没有匹配的用户/, { timeout: 15_000 })
+    // 视觉空态仍在，且带「清除筛选」出口
+    await expect(page.locator('.state-empty')).toContainText('没有匹配的用户')
   })
 })
