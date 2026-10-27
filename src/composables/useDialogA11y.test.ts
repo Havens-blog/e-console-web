@@ -189,4 +189,87 @@ describe('useDialogA11y', () => {
     background.remove()
     wrapper.unmount()
   })
+
+  /**
+   * 触发元素消失时的兜底（R10）。
+   * 实测：删除成功后整行被移除，原「删除」按钮 isConnected=false，
+   * 焦点落回 <body>，按 Tab 也停在 body —— 键盘用户彻底失去位置。
+   */
+  it('触发元素已被移除时，焦点落到兜底落点而非 body', async () => {
+    const heading = document.createElement('h2')
+    heading.className = 'page-title'
+    heading.textContent = '用户管理'
+    document.body.appendChild(heading)
+
+    const { wrapper } = mountDialog()
+    const trigger = document.getElementById('trigger') as HTMLElement
+    trigger.focus()
+    await wrapper.find('#trigger').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(document.activeElement?.id).toBe('field')
+
+    // 模拟「删除成功后整行消失」：把触发按钮从 DOM 移除
+    trigger.remove()
+
+    pressKey('Escape')
+    await nextTick()
+    await nextTick()
+
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toBe(heading)
+    // 兜底落点需补 tabindex=-1 才能被聚焦
+    expect(heading.getAttribute('tabindex')).toBe('-1')
+
+    heading.remove()
+    wrapper.unmount()
+  })
+
+  it('可用 fallbackFocus 覆盖兜底落点', async () => {
+    const custom = document.createElement('div')
+    custom.id = 'custom-fallback'
+    custom.textContent = '列表区'
+    document.body.appendChild(custom)
+
+    const onClose = vi.fn()
+    const Comp = defineComponent({
+      setup() {
+        const open = ref(false)
+        const dialogRef = ref<HTMLElement | null>(null)
+        useDialogA11y(dialogRef, {
+          open,
+          fallbackFocus: '#custom-fallback',
+          onClose: () => {
+            onClose()
+            open.value = false
+          },
+        })
+        return () =>
+          h('div', [
+            h('button', { id: 't2', onClick: () => (open.value = true) }, 'open'),
+            open.value
+              ? h('div', { id: 'dlg2', ref: dialogRef, role: 'dialog', 'aria-modal': 'true' }, [
+                  h('input', { id: 'f2' }),
+                ])
+              : null,
+          ])
+      },
+    })
+    const wrapper = mount(Comp, { attachTo: document.body })
+    const t2 = document.getElementById('t2') as HTMLElement
+    t2.focus()
+    await wrapper.find('#t2').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    t2.remove()
+    pressKey('Escape')
+    await nextTick()
+    await nextTick()
+
+    expect(document.activeElement).toBe(custom)
+
+    custom.remove()
+    wrapper.unmount()
+  })
 })

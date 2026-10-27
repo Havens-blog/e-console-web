@@ -1348,3 +1348,76 @@ test.describe('弹窗背景隔离', () => {
     }
   })
 })
+
+/**
+ * 删除成功后焦点兜底（R10）。
+ *
+ * 修复前实测：删除成功后整行消失，原「删除」按钮 isConnected=false，
+ * `document.activeElement` 落回 **BODY**，按 Tab 也停在 body——键盘用户丢失位置。
+ * 修复后兜底到页标题（`.page-title`，补 tabindex=-1），再按 Tab 回到页头按钮。
+ */
+test.describe('删除后焦点兜底', () => {
+  test('删除成功的行消失后，焦点不落 body 且 Tab 能继续', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+
+    const mk = (id: number, name: string) => ({
+      id,
+      username: name,
+      nickname: name,
+      email: '',
+      phone: '',
+      job_title: '',
+      status: 'active',
+      ctime: 1730000000000,
+      utime: 1730000000000,
+      login_method: 'password',
+      passkey_registered: false,
+      tenant_id: 1,
+    })
+    let users = [mk(1, 'u-one'), mk(2, 'u-two'), mk(3, 'u-three')]
+
+    await page.route('**/api/iam/user/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: { total: users.length, users } }),
+      }),
+    )
+    await page.route('**/api/iam/user/delete**', (route) => {
+      // DELETE /api/iam/user/delete/:id —— id 在 URL 上，不在 body
+      const m = route.request().url().match(/\/user\/delete\/(\d+)/)
+      const id = m ? Number(m[1]) : NaN
+      users = users.filter((u) => u.id !== id)
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: null }),
+      })
+    })
+
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+    await expect(page.locator('tbody tr')).toHaveCount(3)
+
+    await page.getByTestId('delete-user').first().click()
+    const dlg = page.locator('[role="alertdialog"]')
+    await expect(dlg).toBeVisible()
+    await dlg.getByRole('button', { name: /确认删除|删除/ }).last().click()
+
+    await expect(page.locator('tbody tr')).toHaveCount(2, { timeout: 10_000 })
+    await expect(dlg).toHaveCount(0)
+
+    // 焦点不落 body，且落在页标题这类稳定落点
+    const focus = await page.evaluate(() => {
+      const el = document.activeElement
+      return { isBody: el === document.body, tag: el?.tagName ?? null, text: (el?.textContent ?? '').trim() }
+    })
+    expect(focus.isBody, '焦点不应落在 body').toBe(false)
+    expect(focus.text).toContain('用户管理')
+
+    // 键盘可继续
+    await page.keyboard.press('Tab')
+    const next = await page.evaluate(() => (document.activeElement?.textContent ?? '').trim())
+    expect(next).not.toBe('')
+  })
+})

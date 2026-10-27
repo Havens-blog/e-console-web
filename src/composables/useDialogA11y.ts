@@ -36,6 +36,13 @@ const FOCUSABLE_SELECTOR = [
 /** 首选初始焦点：表单类弹窗应直接落在第一个输入项，而非右上角 ✕ */
 const PREFERRED_SELECTOR = 'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])'
 
+/**
+ * 关闭时若原触发元素已消失（删除成功后整行被移除），按此顺序找落点。
+ * 优先页标题：读屏会读出「角色管理」这类位置信息，比落回 body 更可理解；
+ * 再退到主内容区，最后才放弃（放弃时焦点留在 body，等同修复前行为）。
+ */
+const DEFAULT_FALLBACK_SELECTORS = ['.page-title', '.page-head', '[role="main"]', 'main', '.layout-content']
+
 export interface DialogA11yOptions {
   /** 弹窗开关（普通 ref 或 computed 均可） */
   open: Readonly<Ref<boolean>>
@@ -43,6 +50,11 @@ export interface DialogA11yOptions {
   onClose: () => void
   /** 覆盖初始焦点选择器（默认首个输入控件） */
   initialFocus?: string
+  /**
+   * 关闭时还原焦点的兜底选择器：触发元素已被移除（例如删除成功后整行消失）时使用。
+   * 不传则按 DEFAULT_FALLBACK_SELECTORS 逐个尝试。
+   */
+  fallbackFocus?: string
 }
 
 export function useDialogA11y(
@@ -75,6 +87,27 @@ export function useDialogA11y(
       el.setAttribute('tabindex', '-1')
     }
     el.focus()
+  }
+
+  /**
+   * 触发元素已消失时的兜底落点。
+   * 实测：删除成功后整行被移除，原「删除」按钮 isConnected=false，
+   * 焦点落回 <body>，按 Tab 也停在 body —— 键盘用户彻底失去位置。
+   */
+  function focusFallback(): void {
+    const selectors = options.fallbackFocus
+      ? [options.fallbackFocus]
+      : DEFAULT_FALLBACK_SELECTORS
+    for (const selector of selectors) {
+      const el = document.querySelector<HTMLElement>(selector)
+      if (!el) continue
+      // 兜底落点通常是标题/容器，本身不可聚焦 → 补 tabindex=-1
+      if (!el.hasAttribute('tabindex') && el.tabIndex < 0) {
+        el.setAttribute('tabindex', '-1')
+      }
+      el.focus()
+      return
+    }
   }
 
   function onKeydown(event: KeyboardEvent): void {
@@ -141,7 +174,10 @@ export function useDialogA11y(
         if (options.open.value) return
         releaseBackground?.()
         releaseBackground = null
+        // 触发元素可能已随数据消失（删除成功后整行被移除）：
+        // 此时若只判断 isConnected，焦点会落回 <body>，键盘/读屏用户丢失位置。
         if (target && target.isConnected) target.focus()
+        else focusFallback()
       }
     },
     { immediate: true },
