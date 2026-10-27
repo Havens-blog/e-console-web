@@ -364,17 +364,20 @@ const isEmpty = computed(
                   :checked="src.enabled"
                   :disabled="!can(IAM_IDENTITY_SOURCE.TOGGLE)"
                   data-testid="toggle-enabled"
+                  :aria-label="`${src.enabled ? '停用' : '启用'}身份源 ${src.name}`"
                   @change="onToggle(src)"
                 />
                 <span class="switch__track" aria-hidden="true" />
               </label>
             </td>
             <td>
+              <!-- 行内按钮带行标识的可访问名：否则读屏只会连续念「编辑 按钮」「删除 按钮」 -->
               <button
                 v-if="can(IAM_IDENTITY_SOURCE.SAVE)"
                 type="button"
                 class="btn btn--text"
                 data-testid="edit-idp"
+                :aria-label="`编辑身份源 ${src.name}`"
                 @click="openEdit(src)"
               >
                 编辑
@@ -384,6 +387,7 @@ const isEmpty = computed(
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="delete-idp"
+                :aria-label="`删除身份源 ${src.name}`"
                 @click="openDelete(src.id, src.name)"
               >
                 删除

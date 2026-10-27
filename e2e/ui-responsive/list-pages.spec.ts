@@ -1671,4 +1671,74 @@ test.describe('行内按钮可访问名', () => {
     expect(labels.filter((n) => n === '')).toHaveLength(0)
     expect(labels.some((n) => n.startsWith('编辑角色 '))).toBe(true)
   })
+
+  /**
+   * 身份源页（真实账号缺权限，走 CONTRACT 造 3 行）：
+   * 行内按钮与「启用」开关都必须带身份源名，且开关动词随状态切换。
+   */
+  test('CONTRACT · 身份源页：按钮与启用开关都带身份源名，无重名', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const envelope = (data: unknown) => ({ code: 0, msg: 'ok', data })
+    const src = (id: number, name: string, enabled: boolean) => ({
+      id,
+      name,
+      type: 'ldap',
+      enabled,
+      ldap: {
+        url: 'ldap://ldap.corp.local:389',
+        base_dn: 'dc=corp',
+        bind_dn: 'cn=svc',
+        username_attribute: 'uid',
+        mail_attribute: 'mail',
+      },
+    })
+
+    await page.route('**/api/iam/user/profile**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          envelope({
+            user: { id: 1, username: 'admin', nickname: '管理员' },
+            tenants: [{ id: 3, name: '验证租户', code: 'v3', domain: 'localhost' }],
+            current_tenant_id: 3,
+            is_admin: true,
+            permissions: [
+              'iam:identity_source:view',
+              'iam:identity_source:save',
+              'iam:identity_source:delete',
+              'iam:identity_source:toggle',
+            ],
+            must_select_tenant: false,
+          }),
+        ),
+      }),
+    )
+    await page.route('**/api/iam/identity_source/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(envelope([src(7, 'corp-ldap', true), src(8, 'corp-oidc', false)])),
+      }),
+    )
+
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/identity-sources`, { waitUntil: 'networkidle' })
+    await expect(page.locator('tbody tr').first()).toBeVisible()
+
+    const names = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll('tbody button')].map((b) => b.getAttribute('aria-label') ?? '')
+      const boxes = [...document.querySelectorAll('tbody input[type="checkbox"]')].map(
+        (c) => c.getAttribute('aria-label') ?? '',
+      )
+      return [...btns, ...boxes]
+    })
+
+    expect(names.length).toBeGreaterThan(0)
+    expect(names.filter((n) => n === ''), '不能有无名控件').toHaveLength(0)
+    expect(new Set(names).size, '可访问名不能重复').toBe(names.length)
+    // 开关动词随状态切换
+    expect(names).toContain('停用身份源 corp-ldap')
+    expect(names).toContain('启用身份源 corp-oidc')
+  })
 })
