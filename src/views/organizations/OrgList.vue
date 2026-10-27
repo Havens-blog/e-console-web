@@ -72,7 +72,8 @@ onMounted(async () => {
 <template>
   <section class="page-org-list" :aria-busy="store.loading">
     <header class="page-head">
-      <h2 class="page-title">组织管理</h2>
+      <!-- 页面主标题用 h1：全站此前没有任何 h1，读屏按标题导航缺「这一页是什么」的锚点 -->
+      <h1 class="page-title">组织管理</h1>
       <button
         v-if="can(IAM_DEPARTMENT.ADD)"
         type="button"
