@@ -820,7 +820,9 @@ useDialogA11y(deleteDialogRef, {
   -webkit-overflow-scrolling: touch;
   background: var(--bg-elevated);
   border-radius: 8px;
-  min-height: 120px;
+  /* 与骨架实测高度（5 行 ≈ 248px）对齐：加载中/小数据量两态同高，
+     避免骨架→表格的整页跳动（实测原为 120px，1 行数据时收缩 128px）。 */
+  min-height: 248px;
 }
 
 .data-table {

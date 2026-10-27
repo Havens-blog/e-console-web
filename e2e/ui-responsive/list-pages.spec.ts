@@ -1267,3 +1267,37 @@ test.describe('列表每页条数', () => {
     }
   })
 })
+
+/**
+ * 加载前后布局稳定（R8）。
+ *
+ * 修复前实测：骨架固定 232px，`.table-wrap` 只有 `min-height:120px`，
+ * 于是 1 行数据的页面从 248px 收缩到 120px（**整页跳动 128px**），
+ * 6 行数据的页面则从 248px 长到 326px（+78px）。
+ * 修复：`min-height` 提到与骨架实测高度一致（248px），小数据量页零跳动。
+ */
+test.describe('加载前后布局稳定', () => {
+  test('角色页：加载中与加载后容器高度一致（1 行数据不再塌陷）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/role/list**', async (route) => {
+      await new Promise((r) => setTimeout(r, 1800))
+      await route.continue()
+    })
+    await page.goto(`${BASE_URL}/console/roles`)
+
+    const wrapH = () =>
+      page.evaluate(() => Math.round(document.querySelector('.table-wrap')!.getBoundingClientRect().height))
+
+    await expect(page.locator('.skeleton')).toBeVisible()
+    const duringLoad = await wrapH()
+
+    await expect(page.locator('.skeleton')).toHaveCount(0, { timeout: 15_000 })
+    const afterLoad = await wrapH()
+
+    // 修复前：duringLoad=248 → afterLoad=120（塌陷 128px）
+    expect(duringLoad).toBeGreaterThanOrEqual(240)
+    expect(afterLoad).toBe(duringLoad)
+  })
+})

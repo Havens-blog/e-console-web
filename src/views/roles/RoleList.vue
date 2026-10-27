@@ -680,7 +680,8 @@ function userCount(code: string): string {
   -webkit-overflow-scrolling: touch;
   background: var(--bg-elevated);
   border-radius: 8px;
-  min-height: 120px;
+  /* 与骨架实测高度（5 行 ≈ 248px）对齐：加载中/小数据量两态同高，避免整页跳动 */
+  min-height: 248px;
 }
 
 .data-table {
