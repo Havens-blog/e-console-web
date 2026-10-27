@@ -1019,7 +1019,8 @@ test.describe('详情页危险操作确认', () => {
   test('选「禁用」弹确认；取消/Esc 均回滚，确认才落地', async ({ page }) => {
     await openUserDetail(page)
     const select = page.getByTestId('detail-status')
-    const box = page.locator('.el-message-box')
+    // 只认可见实例：Element Plus 关闭后旧节点会短暂留在 DOM
+    const box = page.locator('.el-message-box:visible')
 
     expect(await select.inputValue()).toBe('active')
 
@@ -1052,5 +1053,115 @@ test.describe('详情页危险操作确认', () => {
     expect(text).not.toMatch(/G-2|G-3|reset_password/)
     expect(text).not.toMatch(/list\/detail/)
     expect(text).toContain('当前账号的登录方式')
+  })
+})
+
+/**
+ * 详情页「未保存离开」拦截。
+ *
+ * 修复前实测：取消 / 返回列表 / 侧栏跳转 / 浏览器后退 四条路径全部静默丢弃编辑
+ * （dialog=0，直接跳走）。修复后用 onBeforeRouteLeave 一处覆盖——
+ * 因为四条路径最终都走路由跳转。
+ */
+test.describe('详情页未保存离开拦截', () => {
+  // Element Plus 关闭后会把旧弹窗节点短暂留在 DOM，故只认可见实例
+  const box = (page: Page) => page.locator('.el-message-box:visible')
+
+  async function makeDirty(page: Page) {
+    await page.locator('.detail-form input:not([readonly])').first().fill('dirty-e2e-value')
+    await expect(
+      page.locator('.form-actions button, .detail-actions button').filter({ hasText: '保存' }).first(),
+    ).toBeEnabled()
+  }
+
+  /**
+   * 三条 push 型路径各自独立成用例：串联在同一条用例里时，Element Plus 的关闭动画
+   * 会让前后两个 `.el-message-box` 短暂共存（实测 2 个可见节点），断言不稳定。
+   * 每条用例从全新页面开始，只验证一条路径。
+   */
+  test('取消：拦截并可继续编辑', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users/1`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    await makeDirty(page)
+    await page.locator('.form-actions button', { hasText: '取消' }).click()
+    await expect(box(page)).toHaveCount(1)
+    await expect(box(page)).toContainText('未保存')
+    await box(page).getByRole('button', { name: '继续编辑' }).click()
+    await expect(box(page)).toHaveCount(0)
+    await expect(page).toHaveURL(/\/console\/users\/\d+$/)
+  })
+
+  test('返回列表：拦截；放弃修改后可离开', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users/1`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    await makeDirty(page)
+    await page.getByRole('button', { name: /返回用户列表|← 返回/ }).first().click()
+    await expect(box(page)).toHaveCount(1)
+    await box(page).getByRole('button', { name: '继续编辑' }).click()
+    await expect(page).toHaveURL(/\/console\/users\/\d+$/)
+
+    // 放弃修改 → 允许离开
+    await page.getByRole('button', { name: /返回用户列表|← 返回/ }).first().click()
+    await expect(box(page)).toHaveCount(1)
+    await box(page).getByRole('button', { name: '放弃修改并离开' }).click()
+    await expect(page).toHaveURL(/\/console\/users$/)
+  })
+
+  test('侧栏跳转：拦截并可继续编辑', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users/1`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    await makeDirty(page)
+    await page.locator('.sidebar a').filter({ hasText: '角色管理' }).first().click()
+    await expect(box(page)).toHaveCount(1)
+    await box(page).getByRole('button', { name: '继续编辑' }).click()
+    await expect(page).toHaveURL(/\/console\/users\/\d+$/)
+  })
+
+  test('浏览器后退（SPA 内导航）同样拦截', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    // 必须用应用内跳转进入详情，`page.goto` 属文档级导航、后退会整页重载（Vue 守卫无法介入）
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+    await page.getByTestId('edit-user').first().click()
+    await page.waitForURL(/\/console\/users\/\d+$/)
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    await makeDirty(page)
+    await page.goBack()
+
+    await expect(box(page)).toBeVisible()
+    await box(page).getByRole('button', { name: '继续编辑' }).click()
+    // 守卫拒绝后 vue-router 应把 URL 恢复回详情页
+    await expect(page).toHaveURL(/\/console\/users\/\d+$/)
+  })
+
+  test('保存成功后返回列表不被自身守卫拦住', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.route('**/api/iam/user/update**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'ok', data: null }),
+      }),
+    )
+    await page.goto(`${BASE_URL}/console/users/1`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.detail-form')).toBeVisible()
+
+    await makeDirty(page)
+    await page.locator('.form-actions button').filter({ hasText: '保存' }).first().click()
+
+    // 保存成功 → 直接回列表，不弹「未保存」确认
+    await expect(page).toHaveURL(/\/console\/users$/)
+    await expect(box(page)).toHaveCount(0)
   })
 })

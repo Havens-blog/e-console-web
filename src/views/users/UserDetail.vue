@@ -21,7 +21,7 @@
  * - G-9：状态仅 active/disable/unknown（无 locked）。
  */
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import { ElMessageBox } from "element-plus";
 import { useUserListStore } from "@/stores/userList";
 import { useUserStore } from "@/stores/user";
@@ -212,6 +212,7 @@ async function save(): Promise<void> {
       return;
     }
     // 保存成功 → 返回列表（store.update 内部已 fetch，列表 ≤2s 刷新）
+    allowLeave.value = true; // 保存成功是合法离开，跳过未保存拦截
     void router.push("/users");
   } catch (err) {
     saveError.value = errorMessage(err);
@@ -223,6 +224,33 @@ async function save(): Promise<void> {
 function back(): void {
   void router.push("/users");
 }
+
+/**
+ * 未保存离开拦截（唯一入口，覆盖四条路径）：
+ * 「取消」按钮、「返回列表」、侧栏跳转、浏览器后退——它们最终都走路由跳转，
+ * 因此用 onBeforeRouteLeave 一处覆盖即可。原先四条路径全部静默丢弃编辑（审计实测）。
+ * 保存成功后先置 allowLeave，避免「保存→返回列表」被自己的守卫拦住。
+ */
+const allowLeave = ref(false);
+onBeforeRouteLeave(async () => {
+  if (allowLeave.value || !hasChanges.value) return true;
+  try {
+    await ElMessageBox.confirm(
+      "当前修改尚未保存，离开将丢失这些改动。",
+      "有未保存的修改",
+      {
+        type: "warning",
+        confirmButtonText: "放弃修改并离开",
+        cancelButtonText: "继续编辑",
+        distinguishCancelAndClose: true,
+      },
+    );
+    return true;
+  } catch {
+    // 取消 / 关闭：留在当前页继续编辑
+    return false;
+  }
+});
 
 // ---- passkey 绑定态展示（G-2/G-3 降级：bound-state display）----
 const passkeyBound = computed(() => user.value?.passkeyRegistered ?? false);
