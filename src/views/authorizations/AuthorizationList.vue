@@ -312,6 +312,7 @@ const hasActiveFilters = computed(() => store.keyword !== "");
                 type="button"
                 class="btn btn--text btn--danger"
                 :data-testid="`revoke-auth-${idx}`"
+                :aria-label="`撤销 ${auth.subject} 对 ${auth.resource} 的 ${auth.action} 授权`"
                 @click="openRevoke(auth)"
               >
                 撤销

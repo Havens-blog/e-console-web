@@ -324,11 +324,13 @@ function userCount(code: string): string {
             <td data-testid="role-policy-count">{{ policyCount(r.code) }}</td>
             <td data-testid="role-user-count">{{ userCount(r.code) }}</td>
             <td>
+              <!-- 行内按钮带行标识的可访问名：否则读屏只会连续念「编辑 按钮」×N -->
               <button
                 v-if="can(IAM_ROLE.EDIT)"
                 type="button"
                 class="btn btn--text"
                 data-testid="edit-role"
+                :aria-label="`编辑角色 ${r.name}`"
                 @click="gotoDetail(r)"
               >
                 编辑
@@ -338,6 +340,7 @@ function userCount(code: string): string {
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="delete-role"
+                :aria-label="`删除角色 ${r.name}`"
                 @click="openDelete(r)"
               >
                 删除
@@ -347,6 +350,7 @@ function userCount(code: string): string {
                 type="button"
                 class="btn btn--text"
                 data-testid="view-role"
+                :aria-label="`查看角色 ${r.name}`"
                 @click="gotoDetail(r)"
               >
                 查看
