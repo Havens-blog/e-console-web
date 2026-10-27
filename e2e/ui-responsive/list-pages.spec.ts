@@ -1742,3 +1742,47 @@ test.describe('行内按钮可访问名', () => {
     expect(names).toContain('启用身份源 corp-oidc')
   })
 })
+
+/**
+ * 地标结构：全站必须只有一个 <main>，且不得嵌套。
+ *
+ * 修复前实测：`/console/organizations` 的 `mainCount=2`、`nested=1`
+ * ——外壳 `MainLayout` 已有 `<main class="layout-content">`，
+ * 而 `OrgList` 里又写了一个 `<main class="org-detail">`。
+ * HTML 规范禁止 `<main>` 嵌套，会让读屏的「主内容」地标与跳转失效。
+ */
+test.describe('地标结构', () => {
+  const pages = [
+    { name: '用户管理', path: '/console/users' },
+    { name: '角色管理', path: '/console/roles' },
+    { name: '组织管理', path: '/console/organizations' },
+  ]
+
+  for (const p of pages) {
+    test(`${p.name}：只有一个 main 且无嵌套`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await loginAsAdmin(page)
+      await page.goto(`${BASE_URL}${p.path}`, { waitUntil: 'networkidle' })
+
+      const m = await page.evaluate(() => {
+        const mains = [...document.querySelectorAll('main')]
+        return {
+          count: mains.length,
+          nested: mains.filter((el) => !!el.parentElement?.closest('main')).length,
+        }
+      })
+
+      expect(m.count, '页面应有且只有一个 main 地标').toBe(1)
+      expect(m.nested, 'main 不得嵌套').toBe(0)
+    })
+  }
+
+  test('组织详情区改为可导航 region（保留语义）', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/organizations`, { waitUntil: 'networkidle' })
+
+    const region = page.locator('section.org-detail')
+    await expect(region).toHaveAttribute('aria-label', '组织详情与成员')
+  })
+})
