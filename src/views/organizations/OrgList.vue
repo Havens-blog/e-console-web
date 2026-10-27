@@ -106,8 +106,12 @@ onMounted(async () => {
         @delete="onDelete"
       />
 
-      <!-- 右：详情 + 成员（3/5） -->
-      <main class="org-detail">
+      <!-- 右：详情 + 成员（3/5）。
+           这里原先是 <main>，但外壳 MainLayout 已有 <main class="layout-content">，
+           而 HTML 规范禁止 <main> 嵌套（实测本页 mainCount=2、nested=1），
+           会让读屏的「主内容」地标与跳转失效。改用 <section aria-label> 保留
+           「可导航区域」语义，同时不再产生第二个 main 地标。 -->
+      <section class="org-detail" aria-label="组织详情与成员">
         <!-- 详情卡片 -->
         <OrgDetailCard
           @create-child="onCreateChild"
@@ -117,7 +121,7 @@ onMounted(async () => {
 
         <!-- 成员列表卡片 -->
         <OrgMembersCard />
-      </main>
+      </section>
     </div>
 
     <OrgDialogs ref="dialogsRef" />
