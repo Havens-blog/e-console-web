@@ -99,29 +99,24 @@ defineExpose({ expandAndSelectFirst });
               :style="{ paddingLeft: `${(row.depth - 1) * 16 + 8}px` }"
               @click="selectNode(row.node.id)"
             >
+              <!-- 叶子节点没有子节点可展开：渲染成装饰性 <span>（保留 16px 占位对齐），
+                   而不是一个 aria-label 为空、tabindex=-1 的 <button>——后者仍会进入
+                   无障碍树，读屏虚拟光标会念到一个没有名称的「按钮」。
+                   非叶子节点才渲染真正的展开/折叠按钮。 -->
+              <span
+                v-if="row.node.children.length === 0"
+                class="tree__toggle tree__toggle--leaf"
+                aria-hidden="true"
+              />
               <button
+                v-else
                 type="button"
                 class="tree__toggle"
-                :class="{
-                  'tree__toggle--leaf': row.node.children.length === 0,
-                }"
-                :aria-label="
-                  row.node.children.length === 0
-                    ? ''
-                    : expanded.has(row.node.id)
-                      ? '折叠'
-                      : '展开'
-                "
+                :aria-label="expanded.has(row.node.id) ? '折叠' : '展开'"
                 tabindex="-1"
                 @click.stop="toggleExpand(row.node.id)"
               >
-                {{
-                  row.node.children.length === 0
-                    ? ""
-                    : expanded.has(row.node.id)
-                      ? "▾"
-                      : "▸"
-                }}
+                {{ expanded.has(row.node.id) ? "▾" : "▸" }}
               </button>
               <span
                 class="tree__label"
