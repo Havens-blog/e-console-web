@@ -321,15 +321,16 @@ const isEmpty = computed(
       </button>
     </header>
 
-    <!-- 错误态（重试） -->
-    <p v-if="isError" class="state-error" role="alert">
-      <CopyContractText code="eiam.unavailable" tag="span" />
-      <button type="button" class="btn btn--text" @click="reload">重试</button>
-    </p>
-
-    <!-- 表格（名称/类型/启用/操作） -->
+    <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，
+         避免错误态下方残留一个空表格框（原实现错误文案在框外，框内无内容） -->
     <div class="table-wrap">
-      <table v-if="store.items.length > 0" class="data-table">
+      <!-- 错误态（重试）：说明在上、动作在下一行，避免「…请稍后重试」与「重试」连读 -->
+      <div v-if="isError" class="state-error" role="alert">
+        <CopyContractText code="eiam.unavailable" tag="span" />
+        <button type="button" class="btn btn--text" @click="reload">重试</button>
+      </div>
+
+      <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
             <th>名称</th>
@@ -381,7 +382,12 @@ const isEmpty = computed(
       </table>
 
       <!-- 空态 -->
-      <p v-else-if="isEmpty" class="state-empty">暂无身份源配置</p>
+      <!-- 空态：本页无关键词筛选，空即「尚未配置」。
+           不在此加「新增身份源」按钮——页头已有同名按钮，重复会让读屏与
+           测试选择器（strict mode）产生歧义，与 users/roles 的空态约定一致。 -->
+      <div v-else-if="isEmpty" class="state-empty">
+        <p class="state-empty__text">暂无身份源配置</p>
+      </div>
 
       <!-- 加载骨架 -->
       <div v-else-if="store.loading" class="skeleton" aria-hidden="true">
@@ -799,6 +805,25 @@ const isEmpty = computed(
   padding: 32px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+// 错误态：说明在上、重试动作在下一行（同行时「…请稍后重试」+「重试」会读成重复）
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__text {
+    margin: 0;
+  }
 }
 
 .skeleton__row {

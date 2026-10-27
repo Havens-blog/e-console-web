@@ -597,3 +597,124 @@ test.describe('弹窗可访问性 · 第二批页面', () => {
     await expect(confirm).toHaveCount(0)
   })
 })
+
+/**
+ * 第三批：授权 / 策略 / 身份源 的「错误态 + 空态」与 users/roles 对齐。
+ *
+ * 修复前实测（三页一致）：错误文案渲染在 .table-wrap 之外，容器内无内容只留一个
+ * 空壳；且「…请稍后重试」与「重试」按钮同行紧邻，读作「…请稍后重试重试」。
+ */
+test.describe('列表三态 · 第三批页面', () => {
+  const fail500 = (route: import('@playwright/test').Route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 500, msg: 'upstream error', data: null }),
+    })
+
+  /** 错误态几何：必须在表格容器内，且动作位于说明文案下一行 */
+  async function expectStackedErrorInContainer(page: Page, label: string) {
+    const alert = page.locator('.table-wrap .state-error[role="alert"]')
+    await expect(alert, `${label}: 错误态应在表格容器内`).toBeVisible()
+    await expect(alert).toContainText('身份服务暂不可用')
+    // 修复前容器内是空壳（无表格、也无所属状态块）
+    await expect(page.locator('table.data-table')).toHaveCount(0)
+
+    const geo = await page.evaluate(() => {
+      const box = document.querySelector('.table-wrap .state-error') as HTMLElement
+      const text = box.querySelector('span') as HTMLElement
+      const btn = box.querySelector('button') as HTMLElement
+      return {
+        textBottom: Math.round(text.getBoundingClientRect().bottom),
+        btnTop: Math.round(btn.getBoundingClientRect().top),
+      }
+    })
+    expect(geo.btnTop).toBeGreaterThanOrEqual(geo.textBottom)
+  }
+
+  test('REAL · 授权管理：错误态入容器+动作分层，重试可恢复，筛选空态可清除', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/permission/authorizations**', fail500)
+    await page.goto(`${BASE_URL}/console/authorizations`, { waitUntil: 'networkidle' })
+    await expectStackedErrorInContainer(page, '授权')
+
+    await page.unroute('**/api/iam/permission/authorizations**')
+    await page.getByRole('button', { name: '重试', exact: true }).click()
+    await expect(page.locator('table.data-table')).toBeVisible()
+
+    // 筛选无结果 → 与「本来无数据」区分，并给清除入口
+    await page.getByPlaceholder('搜索主体').fill('zzz-not-exist-subject')
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    await expect(page.locator('.state-empty')).toContainText('没有匹配的授权')
+    await page.getByTestId('clear-filters').click()
+    await expect(page.locator('table.data-table')).toBeVisible()
+  })
+
+  test('REAL · 策略管理：错误态入容器，空态文案与筛选空态可区分', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    await page.route('**/api/iam/policy/list**', fail500)
+    await page.goto(`${BASE_URL}/console/policies`, { waitUntil: 'networkidle' })
+    await expectStackedErrorInContainer(page, '策略')
+
+    // 真实空列表：纯文案空态（新增入口在页头，空态不重复同名按钮）
+    await page.unroute('**/api/iam/policy/list**')
+    await page.goto(`${BASE_URL}/console/policies`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.state-empty')).toContainText('暂无策略数据')
+
+    // 筛选无结果 → 文案变化并给清除出口
+    await page.getByPlaceholder('搜索策略名').fill('zzz-not-exist-policy')
+    await page.getByRole('button', { name: '搜索', exact: true }).click()
+    await expect(page.locator('.state-empty')).toContainText('没有匹配的策略')
+    await page.getByTestId('clear-filters').click()
+    await expect(page.locator('.state-empty')).toContainText('暂无策略数据')
+  })
+
+  test('CONTRACT · 身份源管理：错误态入容器，空态文案正确', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+
+    const envelope = (data: unknown) => ({ code: 0, msg: 'ok', data })
+    await page.route('**/api/iam/user/profile**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          envelope({
+            user: { id: 1, username: 'admin', nickname: '管理员' },
+            tenants: [{ id: 3, name: '验证租户', code: 'v3', domain: 'localhost' }],
+            current_tenant_id: 3,
+            is_admin: true,
+            permissions: [
+              'iam:identity_source:view',
+              'iam:identity_source:save',
+              'iam:identity_source:delete',
+            ],
+            must_select_tenant: false,
+          }),
+        ),
+      }),
+    )
+
+    await page.route('**/api/iam/identity_source/list**', fail500)
+    await page.goto(`${BASE_URL}/console/identity-sources`, { waitUntil: 'networkidle' })
+    await expectStackedErrorInContainer(page, '身份源')
+
+    // 空列表 → 空态文案
+    await page.unroute('**/api/iam/identity_source/list**')
+    await page.route('**/api/iam/identity_source/list**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(envelope([])),
+      }),
+    )
+    await page.goto(`${BASE_URL}/console/identity-sources`, { waitUntil: 'networkidle' })
+    await expect(page.locator('.state-empty')).toContainText('暂无身份源配置')
+  })
+})

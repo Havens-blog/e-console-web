@@ -499,8 +499,11 @@ useDialogA11y(deleteDialogRef, {
           <p class="muted">
             首次登录后将强制修改密码（E1）。该密码不会再次展示。
           </p>
+          <!-- 成功面板主按钮用「完成」而非「关闭」：
+               与右上 ✕ 的 aria-label「关闭」区分，避免同一弹窗出现两个同名动作
+               （读屏与自动化选择器都会因此产生歧义）。 -->
           <button type="button" class="btn btn--primary" @click="closeCreate">
-            关闭
+            完成
           </button>
         </div>
 

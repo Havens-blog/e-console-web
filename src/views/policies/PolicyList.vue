@@ -332,6 +332,8 @@ const isError = computed(
 const isEmpty = computed(
   () => !store.loading && store.items.length === 0 && store.error === null,
 );
+/** 是否存在生效中的筛选（空态区分「筛选无结果」与「本来无数据」用） */
+const hasActiveFilters = computed(() => store.keyword !== "");
 </script>
 
 <template>
@@ -366,15 +368,16 @@ const isEmpty = computed(
       </button>
     </div>
 
-    <!-- 错误态（重试） -->
-    <p v-if="isError" class="state-error" role="alert">
-      <CopyContractText code="eiam.unavailable" tag="span" />
-      <button type="button" class="btn btn--text" @click="reload">重试</button>
-    </p>
-
-    <!-- 表格 -->
+    <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，
+         避免错误态下方残留一个空表格框（原实现错误文案在框外，框内无内容） -->
     <div class="table-wrap">
-      <table v-if="store.items.length > 0" class="data-table">
+      <!-- 错误态（重试）：说明在上、动作在下一行，避免「…请稍后重试」与「重试」连读 -->
+      <div v-if="isError" class="state-error" role="alert">
+        <CopyContractText code="eiam.unavailable" tag="span" />
+        <button type="button" class="btn btn--text" @click="reload">重试</button>
+      </div>
+
+      <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
             <th>策略名</th>
@@ -417,7 +420,23 @@ const isEmpty = computed(
       </table>
 
       <!-- 空态 -->
-      <p v-else-if="isEmpty" class="state-empty">暂无策略数据</p>
+      <!-- 空态：区分「筛选无结果」与「本来就没有数据」，前者给一键清除筛选出口。
+           真无数据时只显示文案——页头已有「新增策略」，重复同名按钮会让
+           读屏与测试选择器出现歧义（与 users/roles 的空态约定保持一致）。 -->
+      <div v-else-if="isEmpty" class="state-empty">
+        <template v-if="hasActiveFilters">
+          <p class="state-empty__text">没有匹配的策略，试试更换策略名关键词</p>
+          <button
+            type="button"
+            class="btn btn--text"
+            data-testid="clear-filters"
+            @click="resetFilters"
+          >
+            清除筛选
+          </button>
+        </template>
+        <p v-else class="state-empty__text">暂无策略数据</p>
+      </div>
 
       <!-- 加载骨架 -->
       <div v-else-if="store.loading" class="skeleton" aria-hidden="true">
@@ -769,6 +788,25 @@ const isEmpty = computed(
   padding: 32px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+// 错误态：说明在上、重试动作在下一行（同行时「…请稍后重试」+「重试」会读成重复）
+.state-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.state-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__text {
+    margin: 0;
+  }
 }
 
 .skeleton__row {
