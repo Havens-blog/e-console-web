@@ -777,6 +777,8 @@ const hasActiveFilters = computed(() => store.keyword !== "");
   }
   &--danger {
     background: var(--color-danger);
+    /* 白字在 #ef4444 上仅 3.76:1（WCAG AA 需 4.5）→ 压暗填充到约 #c43838（≈5.3:1） */
+    background: color-mix(in srgb, var(--color-danger) 82%, #000);
     color: #fff;
   }
   &:disabled {
