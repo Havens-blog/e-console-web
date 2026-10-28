@@ -1881,3 +1881,61 @@ test.describe('组织树展开按钮', () => {
     expect(m.unnamedButtons, '不应存在没有可访问名的按钮').toBe(0)
   })
 })
+
+/**
+ * 危险操作按钮（填充态）的对比度必须 ≥ 4.5:1（WCAG 1.4.3 AA）。
+ *
+ * 修复前实测：白字在 `--color-danger`(#ef4444) 上只有 **3.76:1**，不达标。
+ * 修复后压暗填充到约 #c43838 → **5.3:1**。
+ * 注意：必须测**启用态**（disabled 控件按 WCAG 豁免，`opacity:.5` 的读数没有意义）。
+ */
+test.describe('危险按钮对比度', () => {
+  test('删除确认弹窗的「确认删除」对比度 ≥ 4.5', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await loginAsAdmin(page)
+    await page.goto(`${BASE_URL}/console/users`, { waitUntil: 'networkidle' })
+
+    await page.getByTestId('delete-user').first().click()
+    const confirm = page
+      .locator('[role="alertdialog"]')
+      .getByRole('button', { name: '确认删除', exact: true })
+    await expect(confirm).toBeVisible()
+
+    const measured = await confirm.evaluate((el) => {
+      const parse = (c: string) => {
+        let m = c.match(/rgba?\(([^)]+)\)/)
+        if (m) {
+          const p = m[1].split(',').map((x) => parseFloat(x.trim()))
+          return { r: p[0], g: p[1], b: p[2] }
+        }
+        // color-mix 结果以 color(srgb r g b) 形式返回
+        m = c.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/)
+        if (m) return { r: +m[1] * 255, g: +m[2] * 255, b: +m[3] * 255 }
+        return null
+      }
+      const lum = ({ r, g, b }: { r: number; g: number; b: number }) => {
+        const f = (v: number) => {
+          v /= 255
+          return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+      }
+      const cs = getComputedStyle(el as HTMLElement)
+      const fg = parse(cs.color)
+      const bg = parse(cs.backgroundColor)
+      if (!fg || !bg) return { ratio: null, fg: cs.color, bg: cs.backgroundColor }
+      const l1 = lum(fg)
+      const l2 = lum(bg)
+      return {
+        ratio: (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05),
+        fg: cs.color,
+        bg: cs.backgroundColor,
+        disabled: (el as HTMLButtonElement).disabled,
+      }
+    })
+
+    expect(measured.disabled, '必须测启用态（disabled 控件豁免）').toBeFalsy()
+    expect(measured.ratio, `对比度不足：fg=${measured.fg} bg=${measured.bg}`).not.toBeNull()
+    expect(measured.ratio!).toBeGreaterThanOrEqual(4.5)
+  })
+})

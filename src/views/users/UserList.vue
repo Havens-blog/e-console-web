@@ -813,6 +813,9 @@ useDialogA11y(deleteDialogRef, {
   }
   &--danger {
     background: var(--color-danger);
+    /* 白字在 #ef4444 上仅 3.76:1（WCAG AA 需 4.5）→ 压暗填充到约 #c43838（≈5.3:1）。
+       用 color-mix 从 token 派生，品牌色变更时可跟随；不支持 color-mix 的引擎回退上一行。 */
+    background: color-mix(in srgb, var(--color-danger) 82%, #000);
     color: #fff;
   }
   &--sm {
