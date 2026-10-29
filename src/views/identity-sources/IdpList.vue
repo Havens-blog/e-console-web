@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 身份源管理列表页（UF-7，task 4.5）。
  *
@@ -30,6 +30,7 @@ import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
 import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_IDENTITY_SOURCE } from "@/config/permission-codes";
+import IdentitySourceDetailDrawer from "./IdentitySourceDetailDrawer.vue";
 
 const store = useIdpListStore();
 
@@ -290,6 +291,17 @@ function closeDelete(): void {
 // ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
 const formDialogRef = ref<HTMLElement | null>(null);
 const deleteDialogRef = ref<HTMLElement | null>(null);
+
+// ---- 详情抽屉（feat-identity-source-detail）：只读，避免为"看一眼配置"打开编辑表单 ----
+const detailTargetId = ref<number | null>(null);
+
+function openDetail(id: number): void {
+  detailTargetId.value = id;
+}
+
+function closeDetail(): void {
+  detailTargetId.value = null;
+}
 useDialogA11y(formDialogRef, { open: showForm, onClose: closeForm });
 useDialogA11y(deleteDialogRef, {
   open: computed(() => deleteTarget.value !== null),
@@ -372,6 +384,16 @@ const isEmpty = computed(
               </label>
             </td>
             <td>
+              <button
+                v-if="can(IAM_IDENTITY_SOURCE.DETAIL)"
+                type="button"
+                class="btn btn--text"
+                data-testid="detail-idp"
+                :aria-label="`查看身份源详情 ${src.name}`"
+                @click="openDetail(src.id)"
+              >
+                详情
+              </button>
               <!-- 行内按钮带行标识的可访问名：否则读屏只会连续念「编辑 按钮」「删除 按钮」 -->
               <button
                 v-if="can(IAM_IDENTITY_SOURCE.SAVE)"
@@ -705,6 +727,9 @@ const isEmpty = computed(
       </div>
     </div>
   </section>
+
+  <!-- 身份源详情抽屉（feat-identity-source-detail）：纯只读，密码不回显 -->
+  <IdentitySourceDetailDrawer :source-id="detailTargetId" @close="closeDetail" />
 </template>
 
 <style scoped lang="scss">

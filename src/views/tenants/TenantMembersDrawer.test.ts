@@ -28,6 +28,7 @@ import { listTenantMembers, removeTenantMember } from "@/api/tenantMembers";
 vi.mock("@/api/tenantMembers", () => ({
   listTenantMembers: vi.fn(),
   removeTenantMember: vi.fn(),
+  assignTenantMember: vi.fn(),
 }));
 
 const listMock = vi.mocked(listTenantMembers);

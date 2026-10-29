@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 用户域 api 客户端（task 4.2，UF-4）—— 列表/详情/增删改 + 角色绑定 + passkey/reset 降级。
  *
  * 端点证据等级（tech-design §Interfaces + parity-checklist §2/§3）：
@@ -349,26 +349,30 @@ export async function unassignRoles(
   );
 }
 
-// ---- 降级端点（G-1/G-2/G-3，待 eiam 排期补齐；v1 store/UI 不调用）----
+// ---- 端点就绪状态（G-1 已补齐；G-2/G-3 仍缺）----
 
 /**
- * 管理员重置密码（POST /api/iam/user/reset_password，C 档推定）。
- * **G-1 缺口**：parity §3.1 全仓 grep 0 命中——端点不存在，待 eiam 排期补齐。
- * 载荷推定 {user_id} → {initial_password}（一次性展示 + 首登强制改密，tech-design C 档）。
- * v1 降级：初始密码发放保留于 user/create（A 档 #2），本函数为待排期类型载体，UI 不暴露可用入口。
- * @returns 重置后的初始密码（一次性展示）
+ * 管理员重置指定用户密码（POST /api/iam/user/reset_password）。
+ *
+ * **G-1 已补齐**（2026-10-28，eiam `web/user/handler.go` 新增该路由，权限 `iam:user:edit`）。
+ * 真实契约：请求 `{ id, new_password, confirm_password }` → `{ msg: "密码重置成功" }`；
+ * **不返回明文密码**（后端只落 bcrypt 哈希，不回显），故此前"返回一次性初始密码"的推定已废弃。
+ *
+ * 安全：新密码强度由后端 `validatePassword` 校验（弱口令返回 4010205），
+ * 前端不做口令策略实现，只校验两次输入一致。
  */
 export async function resetPassword(
   userId: number,
-): Promise<{ initialPassword: string }> {
-  const data = await unwrapEnvelope<{ initial_password?: string }>(
-    eiamAxios.post<Envelope<{ initial_password?: string }>>(
-      "/api/iam/user/reset_password",
-      { user_id: userId },
-    ),
+  newPassword: string,
+  confirmPassword: string,
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/user/reset_password", {
+      id: userId,
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    }),
   );
-  const initialPassword = asString(data?.initial_password) ?? "";
-  return { initialPassword };
 }
 
 /**
@@ -411,6 +415,64 @@ export async function revokePasskey(
     eiamAxios.post<Envelope<null>>("/api/iam/user/identity/unbind", {
       user_id: userId,
       provider: "passkey",
+      identity_id: identityId,
+    }),
+  );
+}
+
+// ---- 外部身份绑定（管理员视角）----
+
+/** 用户外部身份绑定（provider=ldap/wechat/feishu/passkey） */
+export interface UserIdentity {
+  provider: string;
+  identityId: string;
+}
+
+/**
+ * 管理员查询指定用户的外部身份绑定（POST /api/iam/user/identity/list，权限 iam:user:get）。
+ *
+ * 为什么需要它：解绑必须知道 provider + identity_id；而 GET /identity/list 是**自助**接口
+ * （只能查自己）。没有本函数，管理员只能"盲解绑"，`iam:user:unbind_identity` 也就无从使用。
+ */
+/** 把未知响应体归一为数组（非数组一律视为空，避免后端换形状时页面崩溃） */
+function asArray(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+export async function listUserIdentities(
+  userId: number,
+  provider?: string,
+): Promise<UserIdentity[]> {
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>("/api/iam/user/identity/list", {
+      user_id: userId,
+      ...(provider ? { provider } : {}),
+    }),
+  );
+  return asArray(data)
+    .map((raw) => {
+      const provider = asString((raw as Record<string, unknown>)?.provider);
+      const identityId = asString((raw as Record<string, unknown>)?.identity_id);
+      return provider && identityId ? { provider, identityId } : null;
+    })
+    .filter((x): x is UserIdentity => x !== null);
+}
+
+/**
+ * 解绑指定用户的外部身份（POST /api/iam/user/identity/unbind，权限 iam:user:unbind_identity）。
+ *
+ * identityId 为 string：后端 domain.UserIdentity.IdentityID 是 DN / OpenID / CredentialID
+ * 这类字符串标识，不是数字（旧 revokePasskey 把它当 number 传，属类型误设）。
+ */
+export async function unbindUserIdentity(
+  userId: number,
+  provider: string,
+  identityId: string,
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/user/identity/unbind", {
+      user_id: userId,
+      provider,
       identity_id: identityId,
     }),
   );

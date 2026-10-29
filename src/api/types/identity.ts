@@ -138,6 +138,31 @@ export interface TenantMember {
 }
 
 /**
+ * 用户组（feat-group-management 契约 §2.1/§2.2；eiam group handler 全就绪）。
+ *
+ * eiam 出参形状（`POST /api/iam/group/list` 的 `data.groups[]`）：
+ * `{ id, name, code, desc, ctime, utime }` —— 键名本身已是 camelCase（`desc` 非 `description`），
+ * 无 snake_case 需归一；api 层仅做「缺 id 过滤 + 可选时间戳有效性校验」。
+ *
+ * 时间单位是硬知识：`ctime` / `utime` 为 **Unix 毫秒**（与租户一致），视图层必须经
+ * `src/views/tenants/timestamp.ts` 的 `formatEpochMs` 渲染（该处带年份护栏，防「毫秒当秒」复发）。
+ */
+export interface TenantGroup {
+  /** 组 id（eiam 主键；更新/删除载荷用） */
+  id: number;
+  /** 组名（1–64 字符） */
+  name: string;
+  /** 组标识码（新建可填、≤32；**编辑只读** —— eiam update 载荷无 code 字段） */
+  code: string;
+  /** 描述（≤512 字符；缺失归空串） */
+  desc: string;
+  /** 创建时间（Unix 毫秒；缺失 / 非有限数 → undefined，视图 '—'） */
+  ctime?: number;
+  /** 更新时间（Unix 毫秒；缺失 / 非有限数 → undefined） */
+  utime?: number;
+}
+
+/**
  * 组织（UF-5）。Phase 0 改判（parity 分歧 D-1，tech-design「eiam 可能为 department」已结）：
  * eiam **无 organization 端点族** —— 组织能力由 **department（部门）** 承载，端点域标注：
  * `GET /api/department/list`（树形）+ create/update/delete/:id/detail/:id + assign/remove/members

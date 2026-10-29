@@ -58,6 +58,7 @@ vi.mock("@/api/tenants", () => ({
 vi.mock("@/api/tenantMembers", () => ({
   listTenantMembers: vi.fn().mockResolvedValue({ total: 0, items: [] }),
   removeTenantMember: vi.fn(),
+  assignTenantMember: vi.fn(),
 }));
 
 const detailMock = vi.mocked(getTenantDetail);

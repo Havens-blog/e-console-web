@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 /**
  * policies.ts api 客户端映射单测（task 5.3）。
  *
@@ -23,6 +23,11 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createPolicy,
+  attachPoliciesToRole,
+  attachPoliciesToUser,
+  detachPolicyFromUser,
+  detachPolicyFromRole,
+  listPoliciesForRole,
   deletePolicy,
   listPoliciesPage,
   mapEiamPolicy,
@@ -507,5 +512,115 @@ describe("serializeStatementsJson（编辑 Dialog 回显，复数键）", () => 
     expect(parsed[0].actions).toEqual(["a"]);
     expect(parsed[0].resources).toEqual(["r"]);
     expect(parsed[0].effect).toBe("Allow");
+  });
+});
+
+describe("角色 ↔ 策略 绑定/解绑（feat-role-policies）", () => {
+  it("listPoliciesForRole：载荷 {role_code, offset, limit, keyword}；**不含 type**", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(
+      () => ({ status: 200, body: { code: 0, msg: "", data: { total: 1, policies: [{ code: "p1", name: "策略一", type: 2, statement: [] }] } } }),
+      captured,
+    );
+
+    const page = await listPoliciesForRole("admin", { offset: 0, limit: 100, keyword: "" });
+
+    const sent = JSON.parse(String(captured[0]!.data));
+    expect(sent).toEqual({ role_code: "admin", offset: 0, limit: 100, keyword: "" });
+    // eiam ListRolePoliciesReq.type 是 uint8，传字符串会 400（历史"编辑角色 400"事故）
+    expect(sent).not.toHaveProperty("type");
+    expect(captured[0]!.url).toBe("/api/iam/policy/list/attached/role");
+    expect(page.total).toBe(1);
+    expect(page.items[0]!.code).toBe("p1");
+  });
+
+  it("listPoliciesForRole：roleCode 为空时**不发请求**，直接返回空页", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, data: { total: 0, policies: [] } } }), captured);
+    const page = await listPoliciesForRole("", { offset: 0, limit: 100, keyword: "" });
+    expect(page).toEqual({ total: 0, items: [] });
+    expect(captured).toHaveLength(0);
+  });
+
+  it("listPoliciesForRole：裸数组响应也归一为 Page", async () => {
+    adapterFor(
+      () => ({ status: 200, body: { code: 0, data: [{ code: "p2", name: "策略二", type: 2, statement: [] }] } }),
+      [],
+    );
+    const page = await listPoliciesForRole("rd", { offset: 0, limit: 100, keyword: "" });
+    expect(page.items.map((i) => i.code)).toEqual(["p2"]);
+  });
+
+  it("attachPoliciesToRole：载荷 {subjects:[{type:'role',code}], policy_codes}", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "绑定成功", data: null } }), captured);
+
+    await attachPoliciesToRole("admin", ["p1", "p2"]);
+
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({
+      subjects: [{ type: "role", code: "admin" }],
+      policy_codes: ["p1", "p2"],
+    });
+    expect(captured[0]!.url).toBe("/api/iam/policy/batch-attach");
+  });
+
+  it("attachPoliciesToRole：空角色码或空策略列表时**不发请求**", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, data: null } }), captured);
+    await attachPoliciesToRole("", ["p1"]);
+    await attachPoliciesToRole("admin", []);
+    expect(captured).toHaveLength(0);
+  });
+
+  it("detachPolicyFromRole：载荷 {assignments:[{sub_type:'role',sub_code,policy_code}]}", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "解绑成功", data: null } }), captured);
+
+    await detachPolicyFromRole("admin", "p1");
+
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({
+      assignments: [{ sub_type: "role", sub_code: "admin", policy_code: "p1" }],
+    });
+    expect(captured[0]!.url).toBe("/api/iam/policy/batch-detach");
+  });
+
+  it("detachPolicyFromRole：服务端拒绝时抛出业务原文", async () => {
+    adapterFor(() => ({ status: 200, body: { code: 4050016, msg: "策略正在使用中，无法删除", data: null } }), []);
+    await expect(detachPolicyFromRole("admin", "p1")).rejects.toThrow(/策略正在使用中/);
+  });
+});
+
+describe("用户 ↔ 策略 绑定/解绑（feat-user-policies-write）", () => {
+  it("attachPoliciesToUser：subject 的 code 是**用户名**（不是 user_id）", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "绑定成功", data: { total: 1, inserted: 1, ignored: 0 } } }), captured);
+
+    await attachPoliciesToUser("alice", ["p1"]);
+
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({
+      subjects: [{ type: "user", code: "alice" }],
+      policy_codes: ["p1"],
+    });
+    expect(captured[0]!.url).toBe("/api/iam/policy/batch-attach");
+  });
+
+  it("attachPoliciesToUser：空用户名或空策略列表时**不发请求**", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, data: {} } }), captured);
+    await attachPoliciesToUser("", ["p1"]);
+    await attachPoliciesToUser("alice", []);
+    expect(captured).toHaveLength(0);
+  });
+
+  it("detachPolicyFromUser：载荷 {assignments:[{sub_type:'user',sub_code,policy_code}]}", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "解绑成功", data: null } }), captured);
+
+    await detachPolicyFromUser("alice", "p1");
+
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({
+      assignments: [{ sub_type: "user", sub_code: "alice", policy_code: "p1" }],
+    });
+    expect(captured[0]!.url).toBe("/api/iam/policy/batch-detach");
   });
 });

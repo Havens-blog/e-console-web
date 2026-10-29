@@ -3,8 +3,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { hasSessionCookie } from '@/api/request/eiam'
 import { useUserStore } from '@/stores/user'
 import {
+  IAM_AUDIT,
   IAM_DEPARTMENT,
+  IAM_GROUP,
   IAM_IDENTITY_SOURCE,
+  IAM_INVITATION,
   IAM_PERMISSION,
   IAM_POLICY,
   IAM_ROLE,
@@ -40,12 +43,22 @@ declare module 'vue-router' {
     skipTenantGuard?: boolean
     /** 仅平台管理员可访问（ui-design：租户/策略管理仅平台管理员） */
     requiresAdmin?: boolean
-    /** 所需 eiam 权限码（用户须具备全部；词表 = config/permission-codes.ts，parity §5 定稿） */
+    /** 所需 eiam 权限码（判定模式见 permissionMode，默认须具备全部；词表 = config/permission-codes.ts，parity §5 定稿） */
     permissions?: string[]
+    /**
+     * `permissions` 的判定模式，默认 `'all'`（须全部持有，既有路由口径不变）。
+     *
+     * 为何需要它：像 /audit 这类「一个页面多个页签、每个页签各需一码」的路由，
+     * 若用 'all'，只持其中一码的用户会在路由层被拦到 /forbidden，
+     * 而页面本身已按码裁剪页签 —— 两者矛盾。故此类路由声明 'any'。
+     */
+    permissionMode?: 'all' | 'any'
+    /** 页面标题（feat-group-management 契约 §2.4；文档/面包屑兜底用，非守卫判据） */
+    title?: string
   }
 }
 
-// ---- 路由表（11 页 + 2 子页 + 403 页）----
+// ---- 路由表（17 条：13 页 + 2 子页 + 403 页 + 根重定向）----
 
 export const routes: RouteRecordRaw[] = [
   {
@@ -89,6 +102,26 @@ export const routes: RouteRecordRaw[] = [
     meta: { permissions: [IAM_IDENTITY_SOURCE.VIEW] },
   },
   {
+    // 用户组管理（feat-group-management 契约 §2.4）：平台管理员独占 + iam:group:view 双闸
+    path: '/groups',
+    component: () => import('@/views/groups/GroupList.vue'),
+    meta: {
+      requiresAdmin: true,
+      permissions: [IAM_GROUP.VIEW],
+      title: '用户组管理',
+    },
+  },
+  {
+    // 邀请管理（feat-invitation-management 契约 §2.3）：平台管理员独占 + iam:invitation:view 双闸
+    path: '/invitations',
+    component: () => import('@/views/invitations/InvitationList.vue'),
+    meta: {
+      requiresAdmin: true,
+      permissions: [IAM_INVITATION.VIEW],
+      title: '邀请管理',
+    },
+  },
+  {
     path: '/roles',
     component: () => import('@/views/roles/RoleList.vue'),
     meta: { permissions: [IAM_ROLE.VIEW] },
@@ -107,6 +140,21 @@ export const routes: RouteRecordRaw[] = [
     path: '/policies',
     component: () => import('@/views/policies/PolicyList.vue'),
     meta: { requiresAdmin: true, permissions: [IAM_POLICY.VIEW] },
+  },
+  {
+    // 审计日志（feat-audit-logs 契约 §2.4）：平台管理员独占 + 两个只读审计码双闸。
+    // 页内两个页签各自按 view_auth / view_operation 显隐（缺码不渲染且不请求）。
+    path: '/audit',
+    component: () => import('@/views/audit/AuditLogList.vue'),
+    meta: {
+      requiresAdmin: true,
+      permissions: [IAM_AUDIT.VIEW_AUTH, IAM_AUDIT.VIEW_OPERATION],
+      // 任一码即可进入：页内两个页签各自按码显隐（缺码不渲染且不请求）。
+      // 若用默认 'all'，只持 view_auth 的用户会在路由层就被送 /forbidden，
+      // 与「页面按码单页签渲染」的设计自相矛盾。
+      permissionMode: 'any',
+      title: '审计日志',
+    },
   },
   {
     path: '/tenant-select',
@@ -208,8 +256,15 @@ function missingPermissionCodes(to: RouteLocation): string[] {
   if (to.meta.requiresAdmin && !userStore.isAdmin) missing.push('is_admin')
   const required = to.meta.permissions
   if (required && required.length > 0) {
-    for (const code of required) {
-      if (!userStore.hasPermission(code)) missing.push(code)
+    if (to.meta.permissionMode === 'any') {
+      // 任一命中即通过（多页签页面各需一码的场景）；全缺才记缺失。
+      if (!required.some((code) => userStore.hasPermission(code))) {
+        missing.push(...required)
+      }
+    } else {
+      for (const code of required) {
+        if (!userStore.hasPermission(code)) missing.push(code)
+      }
     }
   }
   return missing
@@ -230,15 +285,20 @@ router.beforeEach(async (to) => {
 
   const userStore = useUserStore()
 
-  // ① profile 拉取：未加载则拉取，失败（含 401）→ 跳登录
+  // ① profile 拉取：未加载则拉取；失败按 kind 裁决（401→登录 / 5xx·网络→降级放行）。
   //    仅在 profile 为空且非在途时触发，避免每次导航重复拉取。
   if (!userStore.profile && !userStore.loading) {
     const ok = await userStore.fetchProfile()
     if (!ok) {
-      // profile 拉取失败（含 401 在内）：守卫 SPA 跳登录 + 复位在途状态。
+      // 401/未认证（含载荷无法解析的未登录兜底）：守卫 SPA 跳登录 + 复位在途状态。
       // 注：若失败源于 401，eiam.ts 响应拦截器已置 isRedirectingToLogin 并触发硬跳；
       //    此处 SPA 跳转与硬跳同向 /console/login，不冲突（硬跳胜出亦无碍）。
-      return redirectToLogin(to)
+      if (!userStore.authUnavailable) {
+        return redirectToLogin(to)
+      }
+      // 5xx/网络错（eiam 不可用）——F 产品缺口裁决：401→登录 vs 5xx→降级（tech-design §7）。
+      // 不跳登录，继续走 ②③④：/workbench 无权限要求 → 放行并渲染降级横幅；
+      // 权限页因空权限在 ③ fail-closed 拦到 /forbidden（只读降级，不越权）。
     }
   }
 

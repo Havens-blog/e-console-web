@@ -1,11 +1,13 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 角色详情/绑定子页（UF-8，task 5.1）—— 路由 /roles/:id。
  *
  * 参照：ui-design UF-8 Secondary Page（Layout/Interactions/Data Binding）+ tech-design §Interfaces
  * + parity-checklist §2.8/D-3/G-6。
  *
- * 布局：页头（返回 + 角色名 + 保存）→ 角色名/所属租户 → 策略绑定多选 + 用户绑定多选（支持搜索）。
+ * 布局：页头（返回 + 角色名 + 保存）→ 角色名/所属租户 → 策略绑定多选 + 用户绑定多选（支持搜索）
+ * → 继承关系区块（RoleInheritanceCard，独立于本表单、即时生效，feat-role-inheritance）
+ * → 关联用户组区块（RoleBoundGroupsCard，只读反查，feat-role-bound-groups）。
  * 双多选在整页承载（避免 Dialog 内可用性问题，ui-design 明示）。
  *
  * 数据（AC-5：单条角色按 code 查询填充子页）：
@@ -14,6 +16,8 @@
  * - listBindablePolicies(q)（C 档：policy/list，**仅列 eiam 可绑定策略，无策略定义入口**——Hard Rule）；
  * - listUsersByRole(code)（A 档：user/list/attached/role，已绑用户回显）；
  * - listUsers(q)（A 档：user/list，用户绑定多选搜索源）。
+ * - 父角色列表/增删由子组件 RoleInheritanceCard 自取（role/parents|add_parent|remove_parent，
+ *   权限 view_parents / add_parent / remove_parent），本页不重复实现。
  *
  * 保存（AC-3/AC-5）：
  * - updateRole（name/desc）→ roleList store.update（写前守卫 + fetch 刷新）；
@@ -40,6 +44,10 @@ import { listUsers, listUsersByRole } from "@/api/users";
 import { ApiError, type Role, type User } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
+import RoleInheritanceCard from "./components/RoleInheritanceCard.vue";
+import RoleBoundGroupsCard from "./components/RoleBoundGroupsCard.vue";
+import RolePoliciesCard from "./components/RolePoliciesCard.vue";
+import RoleUsersCard from "./components/RoleUsersCard.vue";
 import { useCan } from "@/composables/useCan";
 import { useErrorReveal } from "@/composables/useErrorReveal";
 import { IAM_POLICY, IAM_ROLE } from "@/config/permission-codes";
@@ -60,6 +68,9 @@ const canManagePolicyBind = computed(() =>
 const canManageUserBind = computed(() =>
   canSome([IAM_ROLE.BATCH_ASSIGN, IAM_ROLE.BATCH_UNASSIGN]),
 );
+// 角色继承（feat-role-inheritance）：查看父角色需 iam:role:view_parents；
+// 添加/移除的按钮级裁剪由 RoleInheritanceCard 内部按 ADD_PARENT / REMOVE_PARENT 负责。
+const canViewParents = computed(() => can(IAM_ROLE.VIEW_PARENTS));
 
 // 路由 :id 实为角色 code（eiam role/detail 按 code 查询，非 id）
 const roleCode = computed(() => decodeURIComponent(String(route.params.id)));
@@ -359,6 +370,23 @@ useErrorReveal(saveError, saveErrorRef);
             readonly
             data-testid="detail-role-code"
           />
+
+    <!-- 已绑定策略（feat-role-policies）：策略中心的核心动作「把策略授给主体」
+         此前在控制台完全缺失（只能建策略、无法授权）。本区块含写操作（绑定/解绑），
+         权限门在组件内按 view_role_policies / batch_attach / detach 分别裁剪。 -->
+    <RolePoliciesCard
+      v-if="!loading && !error && role"
+      class="detail-policies"
+      :role-code="role.code"
+    />
+
+    <!-- 关联用户（feat-role-users）：回答"这个角色赋给了哪些人"。
+         此前只能打开编辑表单看勾选；本区块纯只读，权限 iam:user:view_role_members。 -->
+    <RoleUsersCard
+      v-if="!loading && !error && role"
+      class="detail-users"
+      :role-code="role.code"
+    />
           <span class="muted">稳定标识，创建后不可改</span>
         </label>
         <label class="field">
@@ -522,6 +550,25 @@ useErrorReveal(saveError, saveErrorRef);
         </button>
       </div>
     </form>
+
+    <!-- 继承关系（feat-role-inheritance）：父角色列表（直接/间接、不可移除）+ 添加/移除。
+         独立区块（不在 <form> 内）：继承变更即时生效，与「保存」驱动的
+         基本信息/策略/用户绑定 diff 属两套语义。缺 iam:role:view_parents 时不渲染。 -->
+    <RoleInheritanceCard
+      v-if="!loading && !error && role && canViewParents"
+      class="detail-inheritance"
+      :role-code="role.code"
+      :role-name="role.name"
+    />
+
+    <!-- 关联用户组（feat-role-bound-groups）：只读反查「哪些用户组关联了本角色」，
+         补齐本页三元反查的最后一元。独立区块（不在 <form> 内），无任何写入口。
+         权限门在组件内按 iam:group:view_role_groups 裁剪：缺码不渲染且不请求。 -->
+    <RoleBoundGroupsCard
+      v-if="!loading && !error && role"
+      class="detail-bound-groups"
+      :role-code="role.code"
+    />
   </section>
 </template>
 
@@ -666,6 +713,12 @@ useErrorReveal(saveError, saveErrorRef);
   gap: 20px;
   // 长表单收窄阅读宽度：原先通栏（1440 下 input 宽 1081px），长句跨整屏难读。
   // 用户详情是 640px；角色详情含「绑定策略/已绑用户」列表，略放宽到 860px。
+  max-width: 860px;
+}
+
+/* 继承关系区块与表单同宽，视觉上属于同一列 */
+.detail-inheritance,
+.detail-bound-groups {
   max-width: 860px;
 }
 

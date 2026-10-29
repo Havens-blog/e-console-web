@@ -21,8 +21,16 @@
  *
  * Hard Rules：租户管理员策略绑定下拉仅列 eiam 可绑定策略、无策略定义入口——本列表页无策略入口；
  * 策略绑定在详情子页（/roles/:id）。角色名租户内唯一由 eiam 校验。
+ *
+ * feat-role-batch-delete 增量（契约 §2.2，交互照搬 InvitationList 的批量撤回）：
+ * - 行多选 `role-select` + 表头全选 `role-select-all`（**仅本页**，选中集随列表收敛）；
+ * - 批量删除 `role-batch-delete`（需 `IAM_ROLE.BATCH_DELETE`，无选中禁用，显示「已选 N 项」）
+ *   → 二次确认 `role-batch-delete-confirm` / `role-batch-delete-cancel`；
+ * - 成功 → 清空选中 + 重拉；被拒 → `role-batch-delete-error` 展示 `ApiError.message` 原文
+ *   （不改写），弹窗保持打开、选中不清空（不谎报成功）；提交中确认按钮禁用；
+ * - 无 `BATCH_DELETE` 权限 → **不渲染**多选列与批量按钮（既有单条删除/分页/搜索/新建/编辑不变）。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useRoleListStore } from "@/stores/roleList";
 import { useUserStore } from "@/stores/user";
@@ -81,6 +89,106 @@ async function reload(): Promise<void> {
 onMounted(async () => {
   await store.fetch();
 });
+
+// ---- 行多选 + 批量删除（feat-role-batch-delete 契约 §2.2）----
+/** 批量删除能力：无 `BATCH_DELETE` 时不渲染多选列与批量按钮 */
+const canBatchDelete = computed<boolean>(() => can(IAM_ROLE.BATCH_DELETE));
+
+/** 本页选中集（角色 id；契约明示不含跨页选中） */
+const selectedIds = ref<number[]>([]);
+
+/** 当前页是否全选（表头复选框双向绑定：勾选补齐全页 id，取消移除本页 id） */
+const allSelected = computed<boolean>({
+  get: () =>
+    store.items.length > 0
+    && store.items.every((r) => selectedIds.value.includes(r.id)),
+  set: (checked: boolean) => {
+    if (checked) {
+      const next = new Set(selectedIds.value);
+      for (const r of store.items) next.add(r.id);
+      selectedIds.value = [...next];
+    } else {
+      const visible = new Set(store.items.map((r) => r.id));
+      selectedIds.value = selectedIds.value.filter((id) => !visible.has(id));
+    }
+  },
+});
+
+/**
+ * 选中集随列表收敛：重拉 / 翻页 / 换页大小后，不在当前页的角色 id 移出选中集
+ * ——避免「删除看不见的行」（契约范围不含跨页选中）。
+ */
+watch(
+  () => store.items,
+  (items) => {
+    const visible = new Set(items.map((r) => r.id));
+    selectedIds.value = selectedIds.value.filter((id) => visible.has(id));
+  },
+);
+
+// ---- 批量删除二次确认 ----
+const showBatchDelete = ref<boolean>(false);
+/** 本次待删除 id 快照（确认后即使选中集被并发改变也按快照提交） */
+const batchIds = ref<number[]>([]);
+/** 待删除角色名快照（弹窗内逐条列出；取自打开时的列表，重拉后仍可读） */
+const batchDeleteNames = ref<{ id: number; name: string }[]>([]);
+const batchLoading = ref<boolean>(false);
+const batchError = ref<string>("");
+
+/** 服务端拒绝原因原文（ApiError.message **不得改写**；非 ApiError 降级取 message） */
+function rejectedMessage(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
+  return typeof err === "object" && err !== null && "message" in err
+    ? String((err as { message: unknown }).message)
+    : "批量删除失败";
+}
+
+function openBatchDelete(): void {
+  if (selectedIds.value.length === 0) return;
+  batchIds.value = [...selectedIds.value];
+  batchDeleteNames.value = store.items
+    .filter((r) => batchIds.value.includes(r.id))
+    .map((r) => ({ id: r.id, name: r.name }));
+  batchError.value = "";
+  batchLoading.value = false;
+  showBatchDelete.value = true;
+}
+
+function closeBatchDelete(): void {
+  if (batchLoading.value) return;
+  showBatchDelete.value = false;
+  batchIds.value = [];
+  batchDeleteNames.value = [];
+  batchError.value = "";
+}
+
+/**
+ * 确认批量删除：成功 → 关弹窗 + **清空选中**（列表由 store.batchRemove 重拉）；
+ * 被拒 → 原样展示服务端 msg（`role-batch-delete-error`），弹窗保持打开、选中不清空
+ * —— 不把未删除的角色谎报成「已删除」，用户可重试或取消。
+ */
+async function confirmBatchDelete(): Promise<void> {
+  if (batchLoading.value || batchIds.value.length === 0) return;
+  batchLoading.value = true;
+  batchError.value = "";
+  const ids = [...batchIds.value];
+  try {
+    const ok = await store.batchRemove(ids);
+    if (!ok) {
+      // 写前守卫阻断（未发请求）：不谎报成功，弹窗保留
+      batchError.value = store.error ?? "批量删除失败";
+      return;
+    }
+    showBatchDelete.value = false;
+    batchIds.value = [];
+    batchDeleteNames.value = [];
+    selectedIds.value = [];
+  } catch (err) {
+    batchError.value = rejectedMessage(err);
+  } finally {
+    batchLoading.value = false;
+  }
+}
 
 // ---- 所属租户展示（当前租户上下文，user store 只读委托）----
 const currentTenantName = computed(() => {
@@ -217,10 +325,17 @@ function closeDelete(): void {
 // ---- 弹窗键盘 / 焦点可访问性（Escape 关闭、焦点入窗、Tab 不逃逸、关闭归还焦点）----
 const createDialogRef = ref<HTMLElement | null>(null);
 const deleteDialogRef = ref<HTMLElement | null>(null);
+const batchDeleteDialogRef = ref<HTMLElement | null>(null);
 useDialogA11y(createDialogRef, { open: showCreate, onClose: closeCreate });
 useDialogA11y(deleteDialogRef, {
   open: computed(() => deleteTarget.value !== null),
   onClose: closeDelete,
+  // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
+  initialFocus: "[data-dialog-cancel]",
+});
+useDialogA11y(batchDeleteDialogRef, {
+  open: showBatchDelete,
+  onClose: closeBatchDelete,
   // 危险操作弹窗：初始焦点落在「取消」，避免回车误删
   initialFocus: "[data-dialog-cancel]",
 });
@@ -302,6 +417,19 @@ function userCount(code: string): string {
 
     <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，避免错误时残留空表格框 -->
     <div class="table-wrap">
+      <!-- 批量删除工具条：需 BATCH_DELETE；无选中时禁用并显示「已选 N 项」 -->
+      <div v-if="canBatchDelete && store.items.length > 0" class="table-toolbar">
+        <button
+          type="button"
+          class="btn btn--danger"
+          data-testid="role-batch-delete"
+          :disabled="selectedIds.length === 0 || batchLoading"
+          @click="openBatchDelete"
+        >
+          批量删除（已选 {{ selectedIds.length }} 项）
+        </button>
+      </div>
+
       <!-- 错误态（重试） -->
       <div v-if="isError" class="state-error" role="alert">
         <CopyContractText code="eiam.unavailable" tag="span" />
@@ -311,6 +439,14 @@ function userCount(code: string): string {
       <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
+            <th v-if="canBatchDelete" class="col-select">
+              <input
+                v-model="allSelected"
+                type="checkbox"
+                data-testid="role-select-all"
+                aria-label="全选本页角色"
+              />
+            </th>
             <th>角色名</th>
             <th>所属租户</th>
             <th>绑定策略数</th>
@@ -320,6 +456,15 @@ function userCount(code: string): string {
         </thead>
         <tbody>
           <tr v-for="r in store.items" :key="r.id">
+            <td v-if="canBatchDelete" class="col-select">
+              <input
+                v-model="selectedIds"
+                type="checkbox"
+                data-testid="role-select"
+                :value="r.id"
+                :aria-label="`选择角色 ${r.name}`"
+              />
+            </td>
             <td>{{ r.name }}</td>
             <td>{{ currentTenantName }}</td>
             <td data-testid="role-policy-count">{{ policyCount(r.code) }}</td>
@@ -575,6 +720,74 @@ function userCount(code: string): string {
         </div>
       </div>
     </div>
+
+    <!-- 批量删除二次确认 Dialog（成功清空选中并重拉；被拒展示服务端 msg 原文、弹窗保持） -->
+    <div
+      v-if="showBatchDelete"
+      class="dialog-overlay"
+      @click.self="closeBatchDelete"
+    >
+      <div
+        ref="batchDeleteDialogRef"
+        class="dialog dialog--sm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-describedby="role-batch-delete-desc"
+        aria-label="批量删除角色"
+        data-testid="role-batch-delete-dialog"
+      >
+        <header class="dialog__head">
+          <h3>批量删除角色</h3>
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeBatchDelete"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="dialog__body">
+          <p id="role-batch-delete-desc">
+            确认删除选中的 <strong>{{ batchIds.length }}</strong>
+            个角色？此操作不可撤销。
+          </p>
+          <ul class="role-list">
+            <li v-for="r in batchDeleteNames" :key="r.id">{{ r.name }}</li>
+          </ul>
+          <!-- 服务端拒绝原因原样展示（eiam msg，不得改写） -->
+          <p
+            v-if="batchError"
+            class="delete-blocked"
+            role="alert"
+            data-testid="role-batch-delete-error"
+          >
+            {{ batchError }}
+          </p>
+        </div>
+        <div class="dialog__actions">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            :disabled="batchLoading"
+            data-testid="role-batch-delete-cancel"
+            @click="closeBatchDelete"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn btn--danger"
+            :disabled="batchLoading"
+            data-testid="role-batch-delete-confirm"
+            @click="confirmBatchDelete"
+          >
+            {{ batchLoading ? "删除中…" : "确认删除" }}
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -695,6 +908,37 @@ function userCount(code: string): string {
   border-radius: 8px;
   /* 与骨架实测高度（5 行 ≈ 248px）对齐：加载中/小数据量两态同高，避免整页跳动 */
   min-height: 248px;
+}
+
+/* 批量删除工具条（仅 BATCH_DELETE 且列表非空时渲染） */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* 多选列：窄列 + 不换行（复选框列无需等宽字体） */
+.col-select {
+  width: 40px;
+  white-space: nowrap;
+  text-align: center;
+  font-family: inherit;
+
+  input {
+    cursor: pointer;
+  }
+}
+
+/* 待删除角色名清单（弹窗内逐条列出，限高避免撑爆弹窗） */
+.role-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-regular);
+  font-size: 13px;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .data-table {

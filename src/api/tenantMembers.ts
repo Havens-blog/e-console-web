@@ -1,9 +1,15 @@
 /**
- * 租户成员域 api 客户端（feat-tenant-members-ui 契约 §1.2/§1.3 + §2.1）。
+ * 租户成员域 api 客户端（feat-tenant-members-ui 契约 §1.2/§1.3 + §2.1；
+ * feat-tenant-assign-member 契约 §2.1 追加 assign；
+ * feat-tenant-members-batch 契约 §2.1 追加 batch_assign / batch_unassign）。
  *
  * 端点（均已存在，后端零改动）：
  * - 成员列表：POST /api/iam/tenant/members   权限 iam:tenant:view_members；
- * - 移除成员：POST /api/iam/tenant/unassign  权限 iam:tenant:unassign。
+ * - 移除成员：POST /api/iam/tenant/unassign  权限 iam:tenant:unassign；
+ * - 添加成员：POST /api/iam/tenant/assign    权限 iam:tenant:assign
+ *   （服务端另需 permission.User.View，前端不判定）；
+ * - 批量加入：POST /api/iam/tenant/batch_assign    权限 iam:tenant:batch_assign；
+ * - 批量移除：POST /api/iam/tenant/batch_unassign  权限 iam:tenant:batch_unassign。
  *
  * 跨租户上下文（契约 §1.1，关键且不可省）：目标租户经请求头
  * `X-Active-Tenant-ID: <tenantId>` 指定，**每次调用都必须按当前租户 id 注入**；
@@ -154,6 +160,85 @@ export async function removeTenantMember(
     eiamAxios.post<Envelope<null>>(
       "/api/iam/tenant/unassign",
       { user_id: userId },
+      { headers: { "X-Active-Tenant-ID": String(tenantId) } },
+    ),
+  );
+}
+
+/**
+ * 添加租户成员（POST /api/iam/tenant/assign，feat-tenant-assign-member 契约 §2.1）。
+ *
+ * 载荷 `{user_id}`；同样必须携带 `X-Active-Tenant-ID` 指定目标租户
+ * （服务端为**上下文租户**创建 membership，漏带会写到当前会话租户下）。
+ * 用户候选复用 `@/api/users` 的 listUsers（本模块不重复实现）。
+ *
+ * 被拒（4020904 / 重复加入命中的唯一索引报错等）经 unwrapEnvelope 抛 ApiError，
+ * message 即 eiam msg 原文，调用方必须原样展示（禁止二次改写）。
+ */
+export async function assignTenantMember(
+  tenantId: number,
+  userId: number,
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>(
+      "/api/iam/tenant/assign",
+      { user_id: userId },
+      { headers: { "X-Active-Tenant-ID": String(tenantId) } },
+    ),
+  );
+}
+
+/**
+ * 批量加入租户成员（POST /api/iam/tenant/batch_assign；
+ * feat-tenant-members-batch 契约 §2.1）。
+ *
+ * 载荷 `{user_ids, tenant_ids}`（两个数组都是**数字 id**）。
+ * **后端约束**（eiam `validateBatchDimension`）：两个数组不能同时多于 1 个，
+ * 否则 `ErrTenantDimensionInvalid`「仅支持单维度批量操作」。
+ * 本抽屉语义是「当前租户固定」，故 `tenant_ids` 恒为 `[tenantId]` 单元素、
+ * `user_ids` 承载多个用户 —— 单维度批量。
+ *
+ * 跨租户 Header 与既有单条 assign 一致，必须带 `X-Active-Tenant-ID: String(tenantId)`
+ * （服务端据此确定目标租户；漏带会落到当前会话租户）。
+ *
+ * 空数组 → 直接返回，**不发请求**（契约 §2.1；后端对空 user_ids 无意义）。
+ * 被拒 → 经 unwrapEnvelope 抛 ApiError，message 即 eiam msg 原文，调用方原样展示。
+ */
+export async function batchAssignTenantMembers(
+  tenantId: number,
+  userIds: number[],
+): Promise<void> {
+  if (userIds.length === 0) return;
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>(
+      "/api/iam/tenant/batch_assign",
+      { user_ids: [...userIds], tenant_ids: [tenantId] },
+      { headers: { "X-Active-Tenant-ID": String(tenantId) } },
+    ),
+  );
+}
+
+/**
+ * 批量移除租户成员（POST /api/iam/tenant/batch_unassign；
+ * feat-tenant-members-batch 契约 §2.1）。
+ *
+ * 载荷 `{user_ids, tenant_ids}` 与 batch_assign 同形、同「单维度批量」约束：
+ * `tenant_ids` 恒为 `[tenantId]`、`user_ids` 为多个用户 id。
+ * 同样必须带 `X-Active-Tenant-ID: String(tenantId)`。
+ *
+ * 空数组 → 直接返回，不发请求。
+ * 被拒（如「禁止取消当前登录账号的租户关联」「禁止移除 admin」）→ ApiError，
+ * message 即 eiam msg 原文，视图必须原样展示（禁止二次改写）。
+ */
+export async function batchUnassignTenantMembers(
+  tenantId: number,
+  userIds: number[],
+): Promise<void> {
+  if (userIds.length === 0) return;
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>(
+      "/api/iam/tenant/batch_unassign",
+      { user_ids: [...userIds], tenant_ids: [tenantId] },
       { headers: { "X-Active-Tenant-ID": String(tenantId) } },
     ),
   );

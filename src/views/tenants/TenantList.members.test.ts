@@ -53,6 +53,7 @@ vi.mock("@/stores/tenantList", () => ({
 vi.mock("@/api/tenantMembers", () => ({
   listTenantMembers: vi.fn().mockResolvedValue({ total: 0, items: [] }),
   removeTenantMember: vi.fn(),
+  assignTenantMember: vi.fn(),
 }));
 
 const listMock = vi.mocked(listTenantMembers);
@@ -134,6 +135,18 @@ describe("TenantList：成员入口", () => {
 
     fakeListStore.fetch.mockClear();
     wrapper.findComponent(TenantMembersDrawer).vm.$emit("removed");
+    await wrapper.vm.$nextTick();
+
+    expect(fakeListStore.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("抽屉 emit assigned → 父级 store.fetch() 刷新租户列表（用量列，feat-tenant-assign-member §2.3）", async () => {
+    const wrapper = mountWith([IAM_TENANT.VIEW_MEMBERS, IAM_TENANT.ASSIGN]);
+    await wrapper.find('[data-testid="tenant-members"]').trigger("click");
+    await flushPromises();
+
+    fakeListStore.fetch.mockClear();
+    wrapper.findComponent(TenantMembersDrawer).vm.$emit("assigned");
     await wrapper.vm.$nextTick();
 
     expect(fakeListStore.fetch).toHaveBeenCalledTimes(1);

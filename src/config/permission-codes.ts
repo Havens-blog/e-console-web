@@ -124,6 +124,17 @@ export const IAM_GROUP = {
   ASSIGN_ROLE: 'iam:group:assign_role',
   REMOVE_ROLE: 'iam:group:remove_role',
   ROLES: 'iam:group:roles',
+  /**
+   * 查询用户所属分组（eiam group/handler.go:58 `Define("查询用户所属分组", "view_user_groups")`）。
+   * 用户详情页「权限来源」面板的分组区块按此码裁剪（feat-user-permission-sources 契约 §1）。
+   */
+  VIEW_USER_GROUPS: 'iam:group:view_user_groups',
+  /**
+   * 查询角色关联分组（eiam group/handler.go:61 `Define("查询角色关联分组", "view_role_groups")`）。
+   * 角色详情页「关联用户组」区块按此码裁剪（feat-role-bound-groups 契约 §2.1）；与
+   * VIEW_USER_GROUPS 同为**只读反查**码，同处 IAM_VIEW_CODES。
+   */
+  VIEW_ROLE_GROUPS: 'iam:group:view_role_groups',
 } as const
 
 /** 邀请管理（eiam/internal/web/invitation/handler.go:45-63；P1 上页，端点现成） */
@@ -134,6 +145,20 @@ export const IAM_INVITATION = {
   BATCH_DELETE: 'iam:invitation:batch_delete',
   VIEW_REQUESTS: 'iam:invitation:view_requests',
   HANDLE_REQUEST: 'iam:invitation:handle_request',
+} as const
+
+/**
+ * 审计日志（eiam/internal/web/audit/handler.go:104,107；feat-audit-logs 契约 §1.3 实测）。
+ *
+ * 码值经 `eiam/pkg/contract/permission/zz_generated_perms.go:12-13` 核实：
+ * 认证审计 `iam:audit:view_auth`、操作审计 `iam:audit:view_operation`。
+ * 两者均为**只读**码（审计日志不可编辑/删除），故同处 IAM_VIEW_CODES。
+ */
+export const IAM_AUDIT = {
+  /** 查看认证审计（eiam audit/handler.go:104 `Define("查看认证审计", "view_auth")`） */
+  VIEW_AUTH: 'iam:audit:view_auth',
+  /** 查看操作审计（eiam audit/handler.go:107 `Define("查看操作审计", "view_operation")`） */
+  VIEW_OPERATION: 'iam:audit:view_operation',
 } as const
 
 /**
@@ -171,8 +196,13 @@ export const IAM_VIEW_CODES: readonly string[] = [
   IAM_GROUP.GET,
   IAM_GROUP.MEMBERS,
   IAM_GROUP.ROLES,
+  IAM_GROUP.VIEW_USER_GROUPS,
+  IAM_GROUP.VIEW_ROLE_GROUPS,
   IAM_INVITATION.VIEW,
   IAM_INVITATION.VIEW_REQUESTS,
+  // 审计日志（只读角色应能看到审计页；契约 §2.1）
+  IAM_AUDIT.VIEW_AUTH,
+  IAM_AUDIT.VIEW_OPERATION,
 ]
 
 /**

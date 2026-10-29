@@ -197,6 +197,44 @@ export async function listTenants(q: ListQuery): Promise<Page<Tenant>> {
   return toTenantPage(data);
 }
 
+// ---- 用户权限来源：user → tenants 只读反查（feat-user-permission-sources 契约 §1 / §2.1）----
+
+/**
+ * 归一 attached/user 响应 → `Page<Tenant>`。
+ *
+ * eiam 出参为 `ListTenantRes{total, tenants[]}`（tenant/vo.go:54-58）；另兼容**裸数组**。
+ * 复用既有 `toTenantPage`（status int→字符串、治理配置补齐、缺 id 脏项过滤）；
+ * 非对象 / 缺键 / 非数组 → `{total:0, items:[]}`，**不抛**。
+ */
+function toUserTenantPage(raw: unknown): Page<Tenant> {
+  if (Array.isArray(raw)) return toTenantPage({ tenants: raw });
+  return toTenantPage(raw);
+}
+
+/**
+ * 用户所属租户（POST /api/iam/tenant/list/attached/user；权限 `iam:tenant:view_user_tenants`）。
+ *
+ * 载荷 `{user_id, offset, limit, keyword}`（eiam `ListUserTenantsReq`，tenant/vo.go:51-56）。
+ * 该端点在 eiam 侧经 `WithTenantOverride` 包装（跨租户读取，parity §6.3），**只读**：
+ * 本函数不承担任何租户分配/移除（另有 tenant/assign 等既有入口）。
+ *
+ * 归一为 `Page<Tenant>`：视图层只消费 `total / items`，status 已由 api 层归一为词表。
+ */
+export async function listTenantsForUser(
+  userId: number,
+  q: ListQuery,
+): Promise<Page<Tenant>> {
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>("/api/iam/tenant/list/attached/user", {
+      user_id: userId,
+      offset: q.offset,
+      limit: q.limit,
+      keyword: q.keyword,
+    }),
+  );
+  return toUserTenantPage(data);
+}
+
 /**
  * 租户详情（GET /api/iam/tenant/detail/:id，C 档路径实存、形状待核验）。
  * 响应归一为 Tenant（缺 id 返回 null）。

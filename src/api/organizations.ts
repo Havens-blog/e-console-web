@@ -10,6 +10,8 @@
  *   - `DELETE /api/iam/department/delete/:id` 删除部门 → null（被拒 code=4010703）
  *   - `GET  /api/iam/department/detail/:id`   部门详情 → Department（扁平，无计数）
  *   - `POST /api/iam/department/members`      部门成员列表 → {total, members}
+ *   - `POST /api/iam/department/assign`       添加部门成员 → null（feat-dept-members-mutation）
+ *   - `POST /api/iam/department/remove`       移除部门成员 → null（feat-dept-members-mutation）
  *   路径口径 = 控制台外部统一前缀 `/api/iam/*`（nginx/vite 代理重写为 eiam 内部 `/api/*`，
  *   2026-10-09 修复：此前直连 `/api/department/*` 未经反代 → nginx location / 301 →
  *   eiam.unavailable「身份服务暂不可用」，records/6.3-org-prefix.md 落档）。
@@ -261,4 +263,40 @@ export async function listOrganizationMembers(
     }),
   );
   return toMemberPage(data);
+}
+
+// ---- 部门成员增删（feat-dept-members-mutation 契约 §1/§2.1）----
+
+/**
+ * 添加部门成员（POST /api/iam/department/assign，契约 §1）。
+ * 载荷 `{dept_id, user_ids}` —— **user_ids 是数字数组（用户 id），不是 username 数组**；
+ * 该端点无跨租户 Header（契约 §1 末条），故不经 tenantGuard 读写路径之外的改写。
+ * 服务端拒绝（无权限 / 用户不存在等）→ unwrapEnvelope 抛 ApiError（msg 原文由调用方展示）。
+ */
+export async function assignOrganizationMembers(
+  deptId: number,
+  userIds: number[],
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/department/assign", {
+      dept_id: deptId,
+      user_ids: userIds,
+    }),
+  );
+}
+
+/**
+ * 移除部门成员（POST /api/iam/department/remove，契约 §1）。
+ * 载荷 `{dept_id, user_ids}`（数字数组，同 assign）；被拒抛 ApiError（msg 原文）。
+ */
+export async function removeOrganizationMembers(
+  deptId: number,
+  userIds: number[],
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/department/remove", {
+      dept_id: deptId,
+      user_ids: userIds,
+    }),
+  );
 }

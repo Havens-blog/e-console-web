@@ -1,9 +1,9 @@
 // 主布局侧边栏分组菜单配置 + 权限码裁剪（task 2.8 基线 → P0 权限码驱动版）。
 //
-// 三组 8 项：
+// 三组 11 项：
 //   概览 —— 工作台
-//   身份治理 —— 用户管理 / 组织管理 / 租户管理 / 身份源管理
-//   权限管理 —— 角色管理 / 授权管理 / 策略管理
+//   身份治理 —— 用户管理 / 组织管理 / 用户组管理 / 租户管理 / 身份源管理 / 邀请管理
+//   权限管理 —— 角色管理 / 授权管理 / 策略管理 / 审计日志
 //
 // 裁剪口径（P0 定稿，词表 = src/config/permission-codes.ts / parity §5）：
 //   - 菜单项经 `code` 声明所需能力码（undefined = 登录态即可，现仅工作台）；
@@ -24,13 +24,19 @@ import {
   HomeFilled,
   Key,
   Lock,
+  Notebook,
   OfficeBuilding,
+  Promotion,
   User,
+  UserFilled,
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import {
+  IAM_AUDIT,
   IAM_DEPARTMENT,
+  IAM_GROUP,
   IAM_IDENTITY_SOURCE,
+  IAM_INVITATION,
   IAM_MANAGE_CODES,
   IAM_PERMISSION,
   IAM_POLICY,
@@ -66,7 +72,7 @@ export const MENU_GROUPS: MenuGroup[] = [
   { id: 'permission', title: '权限管理' },
 ]
 
-/** 8 项（顺序即组内渲染顺序，与 UF-2 逐字一致；code = 路由守卫 meta.permissions 同源） */
+/** 11 项（顺序即组内渲染顺序；code = 路由守卫 meta.permissions 同源） */
 export const MENU_ITEMS: MenuItem[] = [
   {
     key: 'workbench',
@@ -92,6 +98,21 @@ export const MENU_ITEMS: MenuItem[] = [
     code: IAM_DEPARTMENT.VIEW,
   },
   {
+    // 用户组管理（feat-group-management 契约 §2.4）：图标沿用既有图标集
+    // （@element-plus/icons-vue —— 本仓 MenuItem.icon 为 Component，无 iconfont 类）；
+    // 取 UserFilled（组/人群语义）与「用户管理」的 User 区分
+    key: 'groups',
+    label: '用户组管理',
+    path: '/groups',
+    icon: UserFilled,
+    group: 'identity',
+    code: IAM_GROUP.VIEW,
+    // 与路由 meta.requiresAdmin 保持一致：该页仅平台管理员可用。
+    // 否则持有 iam:group:view 的非管理员会看到菜单、点进来却被守卫送到 /forbidden（
+    // 同组成员「租户管理」「策略管理」均已如此声明）。
+    adminOnly: true,
+  },
+  {
     key: 'tenants',
     label: '租户管理',
     path: '/tenants',
@@ -107,6 +128,21 @@ export const MENU_ITEMS: MenuItem[] = [
     icon: Key,
     group: 'identity',
     code: IAM_IDENTITY_SOURCE.VIEW,
+  },
+  {
+    // 邀请管理（feat-invitation-management 契约 §2.3）：图标沿用既有图标集
+    // （@element-plus/icons-vue —— 本仓 MenuItem.icon 为 Component，无 iconfont 类）；
+    // 取 Promotion（邀请/推广语义）与同组其他项区分
+    key: 'invitations',
+    label: '邀请管理',
+    path: '/invitations',
+    icon: Promotion,
+    group: 'identity',
+    code: IAM_INVITATION.VIEW,
+    // 与路由 meta.requiresAdmin 保持一致：该页仅平台管理员可用。
+    // 否则持有 iam:invitation:view 的非管理员会看到菜单、点进来却被守卫送到 /forbidden
+    // （与用户组管理同款口径）。
+    adminOnly: true,
   },
   {
     key: 'roles',
@@ -131,6 +167,23 @@ export const MENU_ITEMS: MenuItem[] = [
     icon: Connection,
     group: 'permission',
     code: IAM_POLICY.VIEW,
+    adminOnly: true,
+  },
+  {
+    // 审计日志（feat-audit-logs 契约 §2.4）：图标沿用既有图标集
+    // （@element-plus/icons-vue —— 本仓 MenuItem.icon 为 Component，无 iconfont 类）；
+    // 取 Notebook（日志本语义）与同组其他项区分。
+    key: 'audit',
+    label: '审计日志',
+    path: '/audit',
+    // code 取 VIEW_AUTH（契约 §2.4 建议）；页面内两页签各自再按 view_auth /
+    // view_operation 显隐，故持有任一审计码即可从菜单进入。
+    code: IAM_AUDIT.VIEW_AUTH,
+    icon: Notebook,
+    group: 'permission',
+    // 与路由 meta.requiresAdmin 保持一致：该页仅平台管理员可用。
+    // 否则持有 iam:audit:view_auth 的非管理员会看到菜单、点进来却被守卫送到 /forbidden
+    // （与用户组管理 / 邀请管理同款口径）。
     adminOnly: true,
   },
 ]

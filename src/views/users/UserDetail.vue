@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 用户详情/编辑子页（UF-4，task 4.2）—— 路由 /users/:id。
  *
@@ -8,6 +8,8 @@
  * → passkey 注册引导区块。
  *
  * 数据：getUserDetail（C 档）+ listRolesForUser（A 档，角色回显）+ listRoles（A 档，绑定多选源）。
+ * 另挂只读「权限来源」面板（feat-user-permission-sources）：角色 / 分组 / 策略 / 所属租户
+ * 四区块各自独立加载与降级，无任何写入口（详见 components/UserPermissionSources.vue）。
  *
  * 保存（AC-4）：updateUser + 角色 diff（batch_assign/unassign）→ userList store.update（写前守卫
  * + fetch 刷新）→ 返回 /users，列表 ≤2s 刷新（store.update 内部已 fetch）。
@@ -25,11 +27,14 @@ import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router";
 import { ElMessageBox } from "element-plus";
 import { useUserListStore } from "@/stores/userList";
 import { useUserStore } from "@/stores/user";
-import { getUserDetail, listRoles } from "@/api/users";
+import { getUserDetail, listRoles, resetPassword } from "@/api/users";
 import { ApiError, type RoleRef, type User } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
+import UserPermissionSources from "./components/UserPermissionSources.vue";
+import UserIdentities from "./components/UserIdentities.vue";
+import UserPolicies from "./components/UserPolicies.vue";
 import { useCan } from "@/composables/useCan";
 import { useErrorReveal } from "@/composables/useErrorReveal";
 import { IAM_ROLE, IAM_USER } from "@/config/permission-codes";
@@ -60,6 +65,59 @@ const loading = ref(false);
 const error = ref<string>("");
 const saving = ref(false);
 const saveError = ref<string>("");
+
+// ---- 重置密码（G-1 端点已补齐，2026-10-28）----
+// 与「自助改密」不同：管理员不需要旧密码；新密码强度由后端 validatePassword 校验，
+// 前端只负责两次输入一致性。后端不回显明文，故成功后只提示、不展示密码。
+const resetDialogOpen = ref(false);
+const resetNewPassword = ref("");
+const resetConfirmPassword = ref("");
+const resetSubmitting = ref(false);
+const resetError = ref<string>("");
+
+function openResetDialog(): void {
+  resetDialogOpen.value = true;
+  resetNewPassword.value = "";
+  resetConfirmPassword.value = "";
+  resetError.value = "";
+}
+
+function closeResetDialog(): void {
+  if (resetSubmitting.value) return;
+  resetDialogOpen.value = false;
+  resetError.value = "";
+}
+
+async function submitResetPassword(): Promise<void> {
+  if (!user.value) return;
+  resetError.value = "";
+  // 只做"两次一致"的本地校验；口令强度交给服务端策略，避免前端另立一套规则
+  if (!resetNewPassword.value) {
+    resetError.value = "请输入新密码";
+    return;
+  }
+  if (resetNewPassword.value !== resetConfirmPassword.value) {
+    resetError.value = "两次输入的密码不一致";
+    return;
+  }
+  resetSubmitting.value = true;
+  try {
+    await resetPassword(
+      user.value.id,
+      resetNewPassword.value,
+      resetConfirmPassword.value,
+    );
+    resetDialogOpen.value = false;
+    resetNewPassword.value = "";
+    resetConfirmPassword.value = "";
+  } catch (e) {
+    // 服务端拒绝原因（弱口令 4010205 / 用户不存在 4010905 等）原样展示
+    resetError.value =
+      e instanceof ApiError ? e.message : "重置密码失败，请稍后重试";
+  } finally {
+    resetSubmitting.value = false;
+  }
+}
 const user = ref<User | null>(null);
 const originalRoleCodes = ref<string[]>([]);
 const selectedRoleCodes = ref<string[]>([]);
@@ -270,6 +328,16 @@ useErrorReveal(saveError, saveErrorRef);
       <button
         v-if="canEditUser"
         type="button"
+        class="btn btn--ghost"
+        :disabled="loading || !user"
+        data-testid="reset-password"
+        @click="openResetDialog"
+      >
+        重置密码
+      </button>
+      <button
+        v-if="canEditUser"
+        type="button"
         class="btn btn--primary"
         :disabled="loading || saving || !hasChanges"
         data-testid="save-user"
@@ -456,6 +524,88 @@ useErrorReveal(saveError, saveErrorRef);
         </button>
       </div>
     </form>
+
+    <!-- 权限来源（feat-user-permission-sources 契约 §2.3）：纯只读反查区块，
+         挂在详情页既有表单之外 —— 既有 testid 与既有功能零改动；四区块各自独立加载/降级/重试。 -->
+    <UserPermissionSources v-if="user" :user-id="user.id" />
+
+    <!-- 外部身份绑定（feat-user-identity-unbind）：管理员可查看并解绑该用户的 OIDC/微信/飞书/passkey 绑定。
+         独立组件承载，既有表单与保存逻辑零改动。 -->
+    <UserIdentities v-if="user" :user-id="user.id" />
+
+    <!-- 直接绑定的策略（feat-user-policies-write）：三类主体策略授权的最后一环。
+         仅增删"直接绑定"，继承来的策略由上方 UserPermissionSources 只读展示。
+         注意：查询用 user.id，绑定/解绑用 user.username（后端 subject.code 是用户名）。 -->
+    <UserPolicies v-if="user" :user-id="user.id" :username="user.username" />
+
+    <!-- 重置密码弹窗（G-1 端点补齐后新增）：管理员无需旧密码即可重置；
+         后端不回显明文，故成功只提示不展示密码。 -->
+    <div
+      v-if="resetDialogOpen"
+      class="dialog-overlay"
+      data-testid="reset-password-dialog"
+      @click.self="closeResetDialog"
+    >
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="reset-pwd-title">
+        <h3 id="reset-pwd-title" class="dialog__title">
+          重置 {{ user?.username }} 的密码
+        </h3>
+        <p class="muted dialog__hint">
+          重置后该用户需用新密码登录；原密码立即失效，且不可恢复。
+        </p>
+
+        <label class="field">
+          <span class="field__label">新密码</span>
+          <input
+            v-model="resetNewPassword"
+            type="password"
+            class="input"
+            autocomplete="new-password"
+            data-testid="reset-new-password"
+          />
+        </label>
+        <label class="field">
+          <span class="field__label">确认新密码</span>
+          <input
+            v-model="resetConfirmPassword"
+            type="password"
+            class="input"
+            autocomplete="new-password"
+            data-testid="reset-confirm-password"
+          />
+        </label>
+
+        <p
+          v-if="resetError"
+          class="state-error"
+          role="alert"
+          data-testid="reset-password-error"
+        >
+          {{ resetError }}
+        </p>
+
+        <div class="form-actions">
+          <button
+            type="button"
+            class="btn btn--text"
+            :disabled="resetSubmitting"
+            data-testid="reset-password-cancel"
+            @click="closeResetDialog"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn btn--primary"
+            :disabled="resetSubmitting"
+            data-testid="reset-password-confirm"
+            @click="submitResetPassword"
+          >
+            {{ resetSubmitting ? "重置中…" : "确认重置" }}
+          </button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 

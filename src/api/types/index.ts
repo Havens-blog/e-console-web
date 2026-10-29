@@ -15,6 +15,7 @@ export type {
   Organization,
   OrganizationNode,
   Tenant,
+  TenantGroup,
   TenantMember,
   User,
 } from "./identity";

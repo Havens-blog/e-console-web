@@ -3,8 +3,9 @@
  * router 守卫链（2.6）契约测试。
  *
  * 覆盖 AC：
- * - 11 路由注册（/login /workbench /users /users/:id /organizations /tenants
- *   /identity-sources /roles /roles/:id /authorizations /policies /tenant-select）+ 403 页
+ * - 17 路由注册（/login /workbench /users /users/:id /organizations /tenants
+ *   /identity-sources /groups /invitations /roles /roles/:id /authorizations /policies
+ *   /audit /tenant-select）+ 403 页
  * - beforeEach 四步：① cookie 缺失/profile 失败 → 跳登录 ② mustSelectTenant → /tenant-select
  *   ③ permissions 裁剪不通过 → 403 页 ④ 放行并记 currentTenantId 入模块级快照
  * - 401 后复位在途 store（403 原地、401 跳转区分）
@@ -23,12 +24,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp } from 'vue'
 import {
   IAM_ALL_CODES,
+  IAM_AUDIT,
   IAM_DEPARTMENT,
+  IAM_GROUP,
+  IAM_INVITATION,
   IAM_POLICY,
   IAM_ROLE,
   IAM_TENANT,
   IAM_USER,
 } from '@/config/permission-codes'
+import { useUserStore } from '@/stores/user'
 
 // ---- 视图空壳 mock（守卫测试不渲染真实视图）----
 const stubView = { template: '<div />' }
@@ -39,10 +44,13 @@ vi.mock('@/views/users/UserDetail.vue', () => ({ default: stubView }))
 vi.mock('@/views/organizations/OrgList.vue', () => ({ default: stubView }))
 vi.mock('@/views/tenants/TenantList.vue', () => ({ default: stubView }))
 vi.mock('@/views/identity-sources/IdpList.vue', () => ({ default: stubView }))
+vi.mock('@/views/groups/GroupList.vue', () => ({ default: stubView }))
+vi.mock('@/views/invitations/InvitationList.vue', () => ({ default: stubView }))
 vi.mock('@/views/roles/RoleList.vue', () => ({ default: stubView }))
 vi.mock('@/views/roles/RoleDetail.vue', () => ({ default: stubView }))
 vi.mock('@/views/authorizations/AuthorizationList.vue', () => ({ default: stubView }))
 vi.mock('@/views/policies/PolicyList.vue', () => ({ default: stubView }))
+vi.mock('@/views/audit/AuditLogList.vue', () => ({ default: stubView }))
 vi.mock('@/views/tenant-select/TenantSelect.vue', () => ({ default: stubView }))
 vi.mock('@/views/error/Forbidden.vue', () => ({ default: stubView }))
 
@@ -167,7 +175,7 @@ afterEach(() => {
 })
 
 describe('2.6 路由表注册', () => {
-  it('14 页 + 根路径重定向全部注册（懒加载）', () => {
+  it('17 页 + 根路径重定向全部注册（懒加载）', () => {
     const paths = router.getRoutes().map((r) => r.path)
     expect(paths).toEqual(
       expect.arrayContaining([
@@ -179,15 +187,18 @@ describe('2.6 路由表注册', () => {
         '/organizations',
         '/tenants',
         '/identity-sources',
+        '/groups',
+        '/invitations',
         '/roles',
         '/roles/:id',
         '/authorizations',
         '/policies',
+        '/audit',
         '/tenant-select',
         '/forbidden',
       ]),
     )
-    expect(routes).toHaveLength(14)
+    expect(routes).toHaveLength(17)
   })
 
   it('根路径 / 重定向到 /workbench（登录态直接落地不空白）', () => {
@@ -202,12 +213,13 @@ describe('2.6 路由表注册', () => {
     }
   })
 
-  it('/tenants 与 /policies 标记 requiresAdmin（仅平台管理员，ui-design 菜单同口径）', () => {
+  it('/tenants、/policies 与 /groups 标记 requiresAdmin（仅平台管理员，ui-design 菜单同口径）', () => {
     expect(router.resolve('/tenants').meta.requiresAdmin).toBe(true)
     expect(router.resolve('/policies').meta.requiresAdmin).toBe(true)
+    expect(router.resolve('/groups').meta.requiresAdmin).toBe(true)
   })
 
-  it('P0：9 条业务路由声明 meta.permissions（词表码，与菜单/按钮同源）', () => {
+  it('P0：12 条业务路由声明 meta.permissions（词表码，与菜单/按钮同源）', () => {
     expect(router.resolve('/users').meta.permissions).toEqual([IAM_USER.VIEW])
     expect(router.resolve('/users/7').meta.permissions).toEqual([IAM_USER.VIEW])
     expect(router.resolve('/organizations').meta.permissions).toEqual([
@@ -216,6 +228,31 @@ describe('2.6 路由表注册', () => {
     expect(router.resolve('/tenants').meta.permissions).toEqual([IAM_TENANT.VIEW])
     expect(router.resolve('/policies').meta.permissions).toEqual([IAM_POLICY.VIEW])
     expect(router.resolve('/roles').meta.permissions).toEqual([IAM_ROLE.VIEW])
+  })
+
+  it('/groups：meta = { requiresAdmin, permissions: [iam:group:view], title: 用户组管理 }', () => {
+    const meta = router.resolve('/groups').meta
+    expect(meta.requiresAdmin).toBe(true)
+    expect(meta.permissions).toEqual([IAM_GROUP.VIEW])
+    expect(meta.title).toBe('用户组管理')
+  })
+
+  it('/invitations：meta = { requiresAdmin, permissions: [iam:invitation:view], title: 邀请管理 }', () => {
+    const meta = router.resolve('/invitations').meta
+    expect(meta.requiresAdmin).toBe(true)
+    expect(meta.permissions).toEqual([IAM_INVITATION.VIEW])
+    expect(meta.title).toBe('邀请管理')
+  })
+
+  it('/audit：meta = { requiresAdmin, permissions: [view_auth, view_operation], title: 审计日志 }', () => {
+    const meta = router.resolve('/audit').meta
+    expect(meta.requiresAdmin).toBe(true)
+    // 契约 §2.4 逐字：两个只读审计码都声明（守卫要求全部持有）
+    expect(meta.permissions).toEqual([
+      IAM_AUDIT.VIEW_AUTH,
+      IAM_AUDIT.VIEW_OPERATION,
+    ])
+    expect(meta.title).toBe('审计日志')
   })
 
   it('/login 与 /forbidden 标记 public（跳过守卫）；/tenant-select skipTenantGuard', () => {
@@ -230,7 +267,7 @@ describe('2.6 路由表注册', () => {
   })
 })
 
-describe('2.6 守卫链 ① cookie 缺失 / profile 失败 → 跳登录', () => {
+describe('2.6 守卫链 ① cookie 缺失 / profile 失败 → 401跳登录 / 5xx·网络降级放行', () => {
   it('cookie 缺失：跳 /login 且带 redirect 回跳 query，不触发 profile 请求', async () => {
     clearSessionCookie()
     let profileCalled = false
@@ -245,15 +282,24 @@ describe('2.6 守卫链 ① cookie 缺失 / profile 失败 → 跳登录', () =>
     expect(profileCalled).toBe(false)
   })
 
-  it('profile 拉取失败（非 401 网络故障）：跳 /login', async () => {
+  it('profile 拉取失败（非 401 网络故障）：降级放行工作台（401→登录 vs 5xx/网络→降级）', async () => {
     setSessionCookie()
     mockAdapter(() => ({
       networkFailure: { code: 'ERR_NETWORK', message: 'network down' },
     }))
 
     await router.push('/workbench')
-    expect(router.currentRoute.value.path).toBe('/login')
-    expect(router.currentRoute.value.query.redirect).toBe('/workbench')
+    expect(router.currentRoute.value.path).toBe('/workbench')
+    expect(useUserStore().authUnavailable).toBe(true)
+  })
+
+  it('profile 拉取失败（5xx 服务不可用）：降级放行工作台（unavailable 与 401 区分）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({ status: 500, body: '' }))
+
+    await router.push('/workbench')
+    expect(router.currentRoute.value.path).toBe('/workbench')
+    expect(useUserStore().authUnavailable).toBe(true)
   })
 
   it('profile 401：跳 /login（401 收敛路径，复位在途 store）', async () => {
@@ -262,6 +308,7 @@ describe('2.6 守卫链 ① cookie 缺失 / profile 失败 → 跳登录', () =>
 
     await router.push('/workbench')
     expect(router.currentRoute.value.path).toBe('/login')
+    expect(useUserStore().authUnavailable).toBe(false)
   })
 })
 
@@ -428,6 +475,201 @@ describe('2.6 守卫链 ③ permissions 裁剪不通过 → 403 页', () => {
     expect(router.currentRoute.value.query.required).toBe(
       `is_admin,${IAM_TENANT.VIEW}`,
     )
+  })
+
+  it('feat-group-management：/groups 非管理员 → /forbidden（缺 is_admin 记入清单）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: false,
+          current_tenant_id: 1,
+          permissions: IAM_ALL_CODES,
+        }),
+      },
+    }))
+
+    await router.push('/groups')
+    expect(router.currentRoute.value.path).toBe('/forbidden')
+    expect(router.currentRoute.value.query.required).toBe('is_admin')
+  })
+
+  it('feat-group-management：管理员持 iam:group:view → 放行 /groups', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: { code: 0, msg: 'ok', data: profileData({ is_admin: true }) },
+    }))
+
+    await router.push('/groups')
+    expect(router.currentRoute.value.path).toBe('/groups')
+  })
+
+  it('feat-group-management：管理员缺 iam:group:view → /forbidden（码闸独立于 isAdmin）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: true,
+          permissions: IAM_ALL_CODES.filter((c) => c !== IAM_GROUP.VIEW),
+        }),
+      },
+    }))
+
+    await router.push('/groups')
+    expect(router.currentRoute.value.path).toBe('/forbidden')
+    expect(router.currentRoute.value.query.required).toBe(IAM_GROUP.VIEW)
+  })
+
+  it('feat-invitation-management：/invitations 非管理员 → /forbidden（缺 is_admin 记入清单）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: false,
+          current_tenant_id: 1,
+          permissions: IAM_ALL_CODES,
+        }),
+      },
+    }))
+
+    await router.push('/invitations')
+    expect(router.currentRoute.value.path).toBe('/forbidden')
+    expect(router.currentRoute.value.query.required).toBe('is_admin')
+  })
+
+  it('feat-invitation-management：管理员持 iam:invitation:view → 放行 /invitations', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: { code: 0, msg: 'ok', data: profileData({ is_admin: true }) },
+    }))
+
+    await router.push('/invitations')
+    expect(router.currentRoute.value.path).toBe('/invitations')
+  })
+
+  it('feat-invitation-management：管理员缺 iam:invitation:view → /forbidden（码闸独立于 isAdmin）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: true,
+          permissions: IAM_ALL_CODES.filter((c) => c !== IAM_INVITATION.VIEW),
+        }),
+      },
+    }))
+
+    await router.push('/invitations')
+    expect(router.currentRoute.value.path).toBe('/forbidden')
+    expect(router.currentRoute.value.query.required).toBe(IAM_INVITATION.VIEW)
+  })
+
+  it('feat-audit-logs：/audit 非管理员 → /forbidden（缺 is_admin 记入清单）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: false,
+          current_tenant_id: 1,
+          permissions: IAM_ALL_CODES,
+        }),
+      },
+    }))
+
+    await router.push('/audit')
+    expect(router.currentRoute.value.path).toBe('/forbidden')
+    expect(router.currentRoute.value.query.required).toBe('is_admin')
+  })
+
+  it('feat-audit-logs：管理员持两个审计码 → 放行 /audit', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: { code: 0, msg: 'ok', data: profileData({ is_admin: true }) },
+    }))
+
+    await router.push('/audit')
+    expect(router.currentRoute.value.path).toBe('/audit')
+  })
+
+  // 契约勘误（feat-audit-logs）：/audit 声明 permissionMode:'any' —— 两个审计码**任一**即可进入，
+  // 因为页内两页签各自按码显隐；若用 'all'，只持其一的管理员会在路由层被拦，
+  // 与其「按码渲染页签」的设计自相矛盾。以下覆盖真值表。
+  it('feat-audit-logs：管理员仅持 iam:audit:view_auth → 放行（any 模式，页内只渲染认证页签）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: true,
+          permissions: IAM_ALL_CODES.filter(
+            (c) => c !== IAM_AUDIT.VIEW_OPERATION,
+          ),
+        }),
+      },
+    }))
+
+    await router.push('/audit')
+    expect(router.currentRoute.value.path).toBe('/audit')
+  })
+
+  it('feat-audit-logs：管理员仅持 iam:audit:view_operation → 放行（any 模式）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: true,
+          permissions: IAM_ALL_CODES.filter(
+            (c) => c !== IAM_AUDIT.VIEW_AUTH,
+          ),
+        }),
+      },
+    }))
+
+    await router.push('/audit')
+    expect(router.currentRoute.value.path).toBe('/audit')
+  })
+
+  it('feat-audit-logs：管理员两个审计码皆无 → /forbidden（码闸独立于 isAdmin）', async () => {
+    setSessionCookie()
+    mockAdapter(() => ({
+      status: 200,
+      body: {
+        code: 0,
+        msg: 'ok',
+        data: profileData({
+          is_admin: true,
+          permissions: IAM_ALL_CODES.filter(
+            (c) =>
+              c !== IAM_AUDIT.VIEW_AUTH && c !== IAM_AUDIT.VIEW_OPERATION,
+          ),
+        }),
+      },
+    }))
+
+    await router.push('/audit')
+    expect(router.currentRoute.value.path).toBe('/forbidden')
   })
 
   it('权限码驱动放行：持有 iam:user:view 的非管理员直入 /users → 放行', async () => {

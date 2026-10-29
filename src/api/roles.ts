@@ -20,6 +20,9 @@
  *   字符串入 uint8 触发 gin JSON 绑定失败 → HTTP 400，即「编辑角色 400」事故）。
  * - 角色已绑用户清单 = POST /api/iam/user/list/attached/role {role_code, ...}（A 档路径实存，
  *   反向承接 C 档推定的 role/attached/users；已在 users.ts 实现为 listUsersByRole，本域复用）。
+ * - 角色继承 = role/parents | role/add_parent | role/remove_parent（后端已存在，eiam
+ *   internal/web/role/handler.go:79-88 实核）。`/parents` 的 data 是**数组**（非分页信封）
+ *   `[{code, is_direct, is_immutable}]`：**只给 code 不含名称**，名称须由视图层用角色列表本地映射。
  *
  * 归一规则（Hard Rule：eiam 原生形状不经归一不越视图层）：
  * - 信封经 unwrapEnvelope<T>() 解包（api/request/eiam.ts 单一出口）；
@@ -206,6 +209,21 @@ export async function deleteRole(id: number): Promise<void> {
   );
 }
 
+/**
+ * 批量删除角色（POST /api/iam/role/batch_delete，feat-role-batch-delete 契约 §1 / §2.1）。
+ *
+ * 载荷键名精确为 **`ids`**（数字数组）——**不是** `role_ids` / `codes`：错键会被 eiam 静默丢弃，
+ * 表现为「点了批量删除但角色还在」。空数组照样上行（不在本地臆造拦截，由服务端判定）。
+ *
+ * 返回 void：该端点不回传逐条结果，列表由调用方重拉；被拒（无权限 / 角色仍被用户或策略引用等）
+ * 经 unwrapEnvelope 抛 ApiError，`message` 即 eiam msg 原文（**不得二次改写**）。
+ */
+export async function batchDeleteRoles(ids: number[]): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/role/batch_delete", { ids }),
+  );
+}
+
 // ---- 策略绑定（D-3：经 policy 侧承载）----
 
 /**
@@ -346,6 +364,133 @@ export async function unassignUsersFromRole(
       role_codes: [roleCode],
     }),
   );
+}
+
+// ---- 角色继承（feat-role-inheritance：parents / add_parent / remove_parent，后端已存在、零改动）----
+
+/**
+ * 父角色引用（eiam `RoleInheritanceInfo`：`{code, is_direct, is_immutable}`）。
+ *
+ * **响应只有 code，不含名称/描述** —— 名称由视图层从既有 `listRolesPage` 的全量角色本地映射，
+ * 查不到时回退展示 code（契约 §1）。
+ * - `isDirect=true` 直接父角色；`false` 为继承链上游的间接父角色；
+ * - `isImmutable=true` 表示不允许手动移除（系统维护）→ 行内移除按钮必须**禁用**（不是隐藏）。
+ */
+export interface RoleInheritance {
+  code: string;
+  isDirect: boolean;
+  isImmutable: boolean;
+}
+
+/** 归一 `/parents` 响应 → RoleInheritance[]（**数组**，非分页信封；非数组降级 []，缺 code 过滤） */
+function toRoleInheritances(raw: unknown): RoleInheritance[] {
+  if (!Array.isArray(raw)) return [];
+  const items: RoleInheritance[] = [];
+  for (const item of raw) {
+    if (!isRecord(item)) continue;
+    const code = asString(item.code);
+    if (!code) continue;
+    items.push({
+      code,
+      isDirect: item.is_direct === true,
+      isImmutable: item.is_immutable === true,
+    });
+  }
+  return items;
+}
+
+/**
+ * 父角色列表（POST /api/iam/role/parents，后端已存在；权限 `iam:role:view_parents`）。
+ * 载荷 `{role_code}`；响应的 `data` 是**数组**（非 `{total, items}` 分页信封），
+ * 归一为 RoleInheritance[]（非数组 → []，缺 code 脏记录过滤）。
+ */
+export async function listParentRoles(
+  roleCode: string,
+): Promise<RoleInheritance[]> {
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>("/api/iam/role/parents", {
+      role_code: roleCode,
+    }),
+  );
+  return toRoleInheritances(data);
+}
+
+/**
+ * 添加父角色（POST /api/iam/role/add_parent，后端已存在；权限 `iam:role:add_parent`）。
+ * 载荷 `{role_code, parent_role_code}`（两者均为 code，非 id）。
+ * 被拒（成环 / 重复 / 无权限等）由调用方展示 `ApiError.message` **原文**。
+ */
+export async function addParentRole(
+  roleCode: string,
+  parentRoleCode: string,
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/role/add_parent", {
+      role_code: roleCode,
+      parent_role_code: parentRoleCode,
+    }),
+  );
+}
+
+/**
+ * 移除父角色（POST /api/iam/role/remove_parent，后端已存在；权限 `iam:role:remove_parent`）。
+ * 载荷 `{role_code, parent_role_code}`；`is_immutable` 的父角色由 UI 禁用（服务端仍兜底拒绝）。
+ */
+export async function removeParentRole(
+  roleCode: string,
+  parentRoleCode: string,
+): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/role/remove_parent", {
+      role_code: roleCode,
+      parent_role_code: parentRoleCode,
+    }),
+  );
+}
+
+// ---- 用户权限来源：user → roles 只读反查（feat-user-permission-sources 契约 §1 / §2.1）----
+
+/**
+ * 归一 attached/user 响应 → `Role[]`。
+ *
+ * eiam 出参为 `RetrieveRole{total, roles[]}`（与 role/list 同款，role/handler.go:120-127）；
+ * 另兼容**裸数组**（防御代理/旧版直出）。复用既有 `toRolePage`（缺 id 脏项过滤、total 缺省
+ * 按 items 长度），非对象 / 缺 `roles` 键 / 非数组 → 空数组，**不抛**。
+ */
+function toUserRoleList(raw: unknown): Role[] {
+  if (Array.isArray(raw)) return toRolePage({ roles: raw }).items;
+  return toRolePage(raw).items;
+}
+
+/**
+ * 用户已绑角色（POST /api/iam/role/list/attached/user；权限 `iam:role:view_user_roles`）。
+ *
+ * 载荷 `{ user_id, offset, limit, keyword }`。
+ *
+ * 与 `@/api/users` 的同名函数刻意区分：那个是 UF-4 既有的角色回显（返回 `RoleRef[]`，
+ * 载荷 `{user_id, offset, limit}`，服务于用户列表 store 与详情页编辑回显）；本函数是契约 §2.1
+ * 为「权限来源」面板新增的只读反查，返回完整 `Role`（含 name / desc），两者并存以免回归既有回显链路。
+ *
+ * 脏数据一律降级：响应非对象/非数组/缺键 → `[]`；缺 id 的脏记录由 `mapEiamRole` 过滤。
+ *
+ * **必须带 `limit`（重要，契约已勘误）**：eiam `GetRolesByUserId` 把 `req.Limit` 原样下传
+ * （role/handler.go:114），DAO 走 `Paginate` = `Offset(offset).Limit(limit)`（dao/paginate.go），
+ * 而 GORM v2 对 `limit=0` 生成 **`LIMIT 0`** —— 只传 `user_id` 会得到空列表（total 却非 0），
+ * 表现为「角色区块恒为空态」。故此处显式带分页字段（后端 struct 本就支持 offset/limit/keyword）。
+ */
+export async function listRolesForUser(
+  userId: number,
+  q: ListQuery = { offset: 0, limit: 100, keyword: "" },
+): Promise<Role[]> {
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>("/api/iam/role/list/attached/user", {
+      user_id: userId,
+      offset: q.offset,
+      limit: q.limit,
+      keyword: q.keyword,
+    }),
+  );
+  return toUserRoleList(data);
 }
 
 // ---- 复用导出（users.ts 已实现的 A 档角色引用映射，供本域调用方面复用）----

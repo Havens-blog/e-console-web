@@ -216,6 +216,93 @@ export async function listPoliciesPage(
   return toPolicyPage(data);
 }
 
+// ---- 用户权限来源：user → policies 只读反查（feat-user-permission-sources 契约 §1 / §2.1）----
+
+/**
+ * 归一 attached/user 响应 → `Page<PolicyWithMeta>`。
+ *
+ * eiam 出参为 `ListPolicyRes{total, policies[]}`（policy/handler.go:120-127）；
+ * 另兼容**裸数组**。复用既有 `toPolicyPage`（`mapEiamPolicy` 归一 statement / assignment_count、
+ * 缺 code 脏项过滤、total 缺省按 items 长度）；非对象 / 缺键 / 非数组 → `{total:0, items:[]}`，**不抛**。
+ */
+function toUserPolicyPage(raw: unknown): Page<PolicyWithMeta> {
+  if (Array.isArray(raw)) return toPolicyPage({ policies: raw });
+  return toPolicyPage(raw);
+}
+
+/**
+ * 用户直接绑定的策略（POST /api/iam/policy/list/attached/user；权限 `iam:policy:view_user_policies`）。
+ *
+ * 载荷 `{user_id, offset, limit, keyword}`（eiam `ListUserPoliciesReq`，policy/vo.go:49-55）。
+ * 注意 eiam 该 handler 对 `limit <= 0` 回落 10（policy/handler.go:103-106），故调用方必须显式传
+ * limit（面板取 100），否则只会拿到 10 条。
+ *
+ * 归一为 `Page<PolicyWithMeta>`（**不是** eiam 原生 `{total, policies}`；statement 单数键已归一等），
+ * 视图层只消费 `total / items`。
+ */
+export async function listPoliciesForUser(
+  userId: number,
+  q: ListQuery,
+): Promise<Page<PolicyWithMeta>> {
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>("/api/iam/policy/list/attached/user", {
+      user_id: userId,
+      offset: q.offset,
+      limit: q.limit,
+      keyword: q.keyword,
+    }),
+  );
+  return toUserPolicyPage(data);
+}
+
+// ---- 用户组权限来源：group → policies 只读反查（feat-group-policies 契约 §1 / §2.1）----
+
+/**
+ * 归一 attached/group 响应 → `Page<PolicyWithMeta>`。
+ *
+ * eiam 出参为 `ListPolicyRes{total, policies[]}`（policy/handler.go:120-127，与 attached/user
+ * 同款 handler 形状），另兼容**裸数组**（契约 §1「响应形状以既有实现为准…必须在 api 层归一」）。
+ * 复用既有 `toPolicyPage`（`mapEiamPolicy` 归一 statement 单数键 / assignment_count、缺 code
+ * 脏项过滤、total 缺省按 items 长度）；非对象 / 缺键 / 非数组 → `{total:0, items:[]}`，**不抛**。
+ */
+function toGroupPolicyPage(raw: unknown): Page<PolicyWithMeta> {
+  if (Array.isArray(raw)) return toPolicyPage({ policies: raw });
+  return toPolicyPage(raw);
+}
+
+/**
+ * 用户组**直接绑定**的策略（POST /api/iam/policy/list/attached/group；
+ * 权限 `iam:policy:view_group_policies`，eiam policy/handler.go）。
+ *
+ * 载荷 `{group_code, offset, limit, keyword}`（eiam `ListGroupPoliciesReq`，policy/vo.go）。
+ * 契约 §1 两条硬约束：
+ * - 键名精确 **`group_code`**（snake_case；不是 group_id / groupCode）；
+ * - **不传 `type`**（该字段是策略类型过滤，本轮不做筛选，传错会误过滤出空列表）。
+ *
+ * `groupCode` 空串 → 直接返回空页且**不发请求**（也避免 eiam 侧 `binding:"required"` 直接 400
+ * 把可用区域变成错误态）。归一为 `Page<PolicyWithMeta>`，视图层只消费 `total / items`。
+ *
+ * 只读：本函数只读反查，组与策略的绑定 / 解绑属策略域，一律不在职责内。
+ */
+export async function listPoliciesForGroup(
+  groupCode: string,
+  q: ListQuery,
+): Promise<Page<PolicyWithMeta>> {
+  if (groupCode === "") return { total: 0, items: [] };
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>(
+      "/api/iam/policy/list/attached/group",
+      {
+        group_code: groupCode,
+        offset: q.offset,
+        limit: q.limit,
+        keyword: q.keyword,
+      },
+    ),
+  );
+  return toGroupPolicyPage(data);
+}
+
 /** 创建策略载荷（camelCase 规范形；api 层映射为 eiam 载荷） */
 export interface CreatePolicyPayload {
   /** 策略名（1–64 字符，唯一，eiam 校验——冲突提示契约 validation.name_exists） */
@@ -404,4 +491,162 @@ export function parseStatementsJson(text: string): StatementsParseResult {
 /** 规范 PolicyStatement[] → JSON 文本（编辑 Dialog 回显，规范复数键） */
 export function serializeStatementsJson(statements: PolicyStatement[]): string {
   return JSON.stringify(statements, null, 2);
+}
+
+// ---- 角色 ↔ 策略 绑定/解绑（feat-role-policies）----
+//
+// 契约依据（roles.ts 头注释已核验，勿另造形状）：
+// - 绑定 = POST /api/iam/policy/batch-attach {subjects:[{type, code}], policy_codes}
+//   注意主体键是 **type**（不是 sub_type），role 主体时 type="role"、code=角色 code。
+// - 解绑 = POST /api/iam/policy/batch-detach {assignments:[{sub_type, sub_code, policy_code}]}
+//   逐条扁平，避免笛卡尔积误删。
+// - 已绑清单 = POST /api/iam/policy/list/attached/role {role_code, offset, limit, keyword}
+//   **不得传 type**：eiam ListRolePoliciesReq.type 是 uint8，传字符串会触发绑定失败 → HTTP 400
+//   （历史上出过"编辑角色 400"事故）。
+
+/**
+ * 角色已绑策略清单（POST /api/iam/policy/list/attached/role）。
+ *
+ * 载荷键名精确为 `role_code`（snake_case）；**不发送 `type`**（见上方事故说明）。
+ * 归一为 `Page<PolicyWithMeta>`，视图层只消费 total / items。
+ */
+export async function listPoliciesForRole(
+  roleCode: string,
+  q: ListQuery,
+): Promise<Page<PolicyWithMeta>> {
+  // 空 code 直接返回空页且不发请求：避免打到一个必然 400 的请求
+  if (!roleCode) return { total: 0, items: [] };
+
+  const data = await unwrapEnvelope<unknown>(
+    eiamAxios.post<Envelope<unknown>>("/api/iam/policy/list/attached/role", {
+      role_code: roleCode,
+      offset: q.offset,
+      limit: q.limit,
+      keyword: q.keyword,
+    }),
+  );
+  return Array.isArray(data) ? toPolicyPage({ policies: data }) : toPolicyPage(data);
+}
+
+/**
+ * 为角色绑定策略（POST /api/iam/policy/batch-attach，权限 `iam:policy:batch_attach`）。
+ *
+ * 一次可绑多条：把 role 作为单个主体，policy_codes 批量下发。
+ */
+export async function attachPoliciesToRole(
+  roleCode: string,
+  policyCodes: string[],
+): Promise<void> {
+  if (!roleCode || policyCodes.length === 0) return;
+
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/policy/batch-attach", {
+      subjects: [{ type: "role", code: roleCode }],
+      policy_codes: policyCodes,
+    }),
+  );
+}
+
+/**
+ * 解绑角色的某条策略（POST /api/iam/policy/batch-detach，权限 `iam:policy:batch_detach`）。
+ *
+ * 为什么要用 batch-detach 而非单体 detach：单体 `policy/detach` 接收 AttachPolicyReq
+ * {sub_type, sub_code, policy_code}，形状与 batch 不同；统一走 batch 可少维护一套载荷，
+ * 且 assignments 逐条扁平、语义无歧义（不会误删笛卡尔积）。
+ */
+export async function detachPolicyFromRole(
+  roleCode: string,
+  policyCode: string,
+): Promise<void> {
+  if (!roleCode || !policyCode) return;
+
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/policy/batch-detach", {
+      assignments: [{ sub_type: "role", sub_code: roleCode, policy_code: policyCode }],
+    }),
+  );
+}
+
+// ---- 用户组 ↔ 策略 绑定/解绑（feat-group-policies-write）----
+//
+// 用户组策略弹窗此前**严格只读**，且文案写着"策略绑定请到策略页操作"——
+// 而策略页当时根本没有绑定能力，属双重误导。本轮补齐用户组侧的写能力：
+// 后端 batch-attach / batch-detach 本就支持 type=group，无需后端改动。
+
+/**
+ * 为用户组绑定策略（POST /api/iam/policy/batch-attach，权限 `iam:policy:batch_attach`）。
+ *
+ * 主体键是 **type**（不是 sub_type），group 主体时 type="group"、code=组 code。
+ */
+export async function attachPoliciesToGroup(
+  groupCode: string,
+  policyCodes: string[],
+): Promise<void> {
+  if (!groupCode || policyCodes.length === 0) return;
+
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/policy/batch-attach", {
+      subjects: [{ type: "group", code: groupCode }],
+      policy_codes: policyCodes,
+    }),
+  );
+}
+
+/**
+ * 解绑用户组的某条策略（POST /api/iam/policy/batch-detach，权限 `iam:policy:batch_detach`）。
+ *
+ * assignments 逐条扁平（sub_type / sub_code / policy_code），避免笛卡尔积误删。
+ */
+export async function detachPolicyFromGroup(
+  groupCode: string,
+  policyCode: string,
+): Promise<void> {
+  if (!groupCode || !policyCode) return;
+
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/policy/batch-detach", {
+      assignments: [{ sub_type: "group", sub_code: groupCode, policy_code: policyCode }],
+    }),
+  );
+}
+
+// ---- 用户 ↔ 策略 绑定/解绑（feat-user-policies-write）----
+//
+// 三类主体的策略授权至此齐备：角色（feat-role-policies）、用户组（feat-group-policies-write）、用户（本批）。
+// 后端 batch-attach / batch-detach 均支持 type/sub_type=user，无需后端改动。
+// 注意：**直接绑定**的策略才在这里增删；经角色/用户组继承来的策略属"权限来源"只读展示（UserPermissionSources）。
+
+/**
+ * 为用户绑定策略（POST /api/iam/policy/batch-attach，权限 `iam:policy:batch_attach`）。
+ *
+ * 主体键是 **type**（不是 sub_type）；user 主体时 type="user"、code=**用户名**。
+ */
+export async function attachPoliciesToUser(
+  username: string,
+  policyCodes: string[],
+): Promise<void> {
+  if (!username || policyCodes.length === 0) return;
+
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/policy/batch-attach", {
+      subjects: [{ type: "user", code: username }],
+      policy_codes: policyCodes,
+    }),
+  );
+}
+
+/**
+ * 解绑用户的某条直接策略（POST /api/iam/policy/batch-detach，权限 `iam:policy:detach`）。
+ */
+export async function detachPolicyFromUser(
+  username: string,
+  policyCode: string,
+): Promise<void> {
+  if (!username || !policyCode) return;
+
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/policy/batch-detach", {
+      assignments: [{ sub_type: "user", sub_code: username, policy_code: policyCode }],
+    }),
+  );
 }

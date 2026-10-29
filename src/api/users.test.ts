@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 /**
  * users.ts api 客户端映射单测（task 4.2）。
  *
@@ -25,9 +25,11 @@ import {
   listRolesForUser,
   listUsers,
   listUsersByRole,
+  listUserIdentities,
   mapEiamRoleRef,
   mapEiamUser,
   resetPassword,
+  unbindUserIdentity,
   updateUser,
 } from "./users";
 import { eiamAxios } from "@/api/request/eiam";
@@ -370,20 +372,99 @@ describe("listRolesForUser / listRoles / assignRoles（A 档）", () => {
   });
 });
 
-describe("resetPassword（G-1 推定形状归一）", () => {
-  it("载荷 {user_id}；响应 initial_password → initialPassword（待 eiam 排期补齐）", async () => {
+// G-1 端点已于 2026-10-28 在 eiam 补齐（web/user/handler.go: POST /reset_password）。
+// 真实契约与旧「推定形状」不同：请求 {id,new_password,confirm_password}，且**不回显明文**。
+describe("resetPassword（G-1 已补齐：真实契约）", () => {
+  it("载荷 {id,new_password,confirm_password}；无返回值；不回显密码", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "密码重置成功", data: null } }), captured);
+
+    await expect(resetPassword(7, "NewPass#2026", "NewPass#2026")).resolves.toBeUndefined();
+
+    const sent = JSON.parse(String(captured[0]!.data));
+    // 键名精确：后端 ResetPasswordReq 绑定 id / new_password / confirm_password
+    expect(sent).toEqual({
+      id: 7,
+      new_password: "NewPass#2026",
+      confirm_password: "NewPass#2026",
+    });
+    // 旧推定键不得再出现
+    expect(sent).not.toHaveProperty("user_id");
+    expect(captured[0]!.url).toBe("/api/iam/user/reset_password");
+  });
+
+  it("弱口令被服务端拒绝时原样抛出业务 msg（4010205）", async () => {
+    adapterFor(() => ({
+      status: 200,
+      body: { code: 4010205, msg: "密码强度不符合安全策略要求", data: null },
+    }), []);
+    await expect(resetPassword(7, "abc", "abc")).rejects.toThrow(/密码强度不符合安全策略要求/);
+  });
+});
+
+describe("外部身份绑定（管理员视角，feat-user-identity-unbind）", () => {
+  it("listUserIdentities：POST {user_id}；归一 provider/identity_id；过滤残缺项", async () => {
     const captured: InternalAxiosRequestConfig[] = [];
     adapterFor(
       () => ({
         status: 200,
-        body: { code: 0, msg: "", data: { initial_password: "TempPass001" } },
+        body: {
+          code: 0,
+          msg: "",
+          data: [
+            { provider: "ldap", identity_id: "uid=alice,dc=corp" },
+            { provider: "wechat", identity_id: "openid-123" },
+            { provider: "feishu" }, // 缺 identity_id → 应被过滤
+            { identity_id: "orphan" }, // 缺 provider → 应被过滤
+          ],
+        },
       }),
       captured,
     );
-    const result = await resetPassword(7);
-    expect(result).toEqual({ initialPassword: "TempPass001" });
-    const sent = JSON.parse(String(captured[0]!.data));
-    expect(sent).toEqual({ user_id: 7 });
-    expect(captured[0]!.url).toBe("/api/iam/user/reset_password");
+
+    const got = await listUserIdentities(7);
+
+    expect(got).toEqual([
+      { provider: "ldap", identityId: "uid=alice,dc=corp" },
+      { provider: "wechat", identityId: "openid-123" },
+    ]);
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({ user_id: 7 });
+    expect(captured[0]!.url).toBe("/api/iam/user/identity/list");
+  });
+
+  it("listUserIdentities：带 provider 时透传，不带时不发送该键", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "", data: [] } }), captured);
+    await listUserIdentities(7, "ldap");
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({ user_id: 7, provider: "ldap" });
+
+    const captured2: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "", data: [] } }), captured2);
+    await listUserIdentities(7);
+    expect(JSON.parse(String(captured2[0]!.data))).not.toHaveProperty("provider");
+  });
+
+  it("listUserIdentities：data 非数组时归一为空数组（不抛错、页面不崩）", async () => {
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "", data: null } }), []);
+    await expect(listUserIdentities(7)).resolves.toEqual([]);
+  });
+
+  it("unbindUserIdentity：载荷 {user_id, provider, identity_id}，identity_id 为字符串", async () => {
+    const captured: InternalAxiosRequestConfig[] = [];
+    adapterFor(() => ({ status: 200, body: { code: 0, msg: "解除绑定成功", data: null } }), captured);
+
+    await unbindUserIdentity(7, "passkey", "cred-base64-abc");
+
+    expect(JSON.parse(String(captured[0]!.data))).toEqual({
+      user_id: 7,
+      provider: "passkey",
+      identity_id: "cred-base64-abc",
+    });
+    expect(captured[0]!.url).toBe("/api/iam/user/identity/unbind");
+  });
+
+  it("unbindUserIdentity：服务端拒绝时抛出业务原文", async () => {
+    adapterFor(() => ({ status: 200, body: { code: 4010902, msg: "解绑失败", data: null } }), []);
+    await expect(unbindUserIdentity(7, "ldap", "uid=a")).rejects.toThrow(/解绑失败/);
   });
 });

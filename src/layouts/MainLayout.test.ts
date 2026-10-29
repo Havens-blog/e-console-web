@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 // MainLayout 集成单测（task 2.8，UF-2 → P0 权限码驱动版）：
 // - 侧边栏权限码裁剪渲染（admin 全 8 / zero-tenant 仅工作台 / readonly_audit 6 项 /
 //   tenant_admin 4 项——原 inferRole 两档无法区分的档位由码自然得出）
@@ -138,7 +138,7 @@ describe("MainLayout（2.8 壳层）", () => {
   });
 
   describe("侧边栏权限码裁剪渲染", () => {
-    it("平台管理员（全码）：8 项全渲染（含租户/策略管理）", async () => {
+  it("平台管理员（全码）：11 项全渲染（含租户/策略管理，及本迭代新增的用户组/邀请/审计）", async () => {
       const { wrapper } = await mountLayout({
         isAdmin: true,
         tenantsCount: 2,
@@ -147,7 +147,7 @@ describe("MainLayout（2.8 壳层）", () => {
       const sidebar = wrapper.findComponent(SidebarMenu);
       const items = sidebar.findAll(".sidebar-item");
       // 8 菜单项（折叠态不展开 tooltip 包裹也算 a.sidebar-item）
-      expect(items).toHaveLength(8);
+    expect(items).toHaveLength(11);
       const labels = items.map((n) => n.attributes("aria-label"));
       expect(labels).toContain("租户管理");
       expect(labels).toContain("策略管理");

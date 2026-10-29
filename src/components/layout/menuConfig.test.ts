@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // menuConfig 单测（task 2.8 基线 → P0 权限码驱动版）。
 // 覆盖：
-// - MENU_ITEMS 8 项结构 + 权限码声明（与路由守卫 meta.permissions 同源）
+// - MENU_ITEMS 11 项结构 + 权限码声明（与路由守卫 meta.permissions 同源）
 // - visibleMenuItems：adminOnly 双闸 / 权限码过滤 / restricted 仅工作台
 // - inferRoleFromCodes：platform_admin / tenant_admin / readonly_audit / normal
 // - groupedVisibleMenu：分组归集 + 空组滤除
@@ -17,8 +17,11 @@ import {
 } from "./menuConfig";
 import {
   IAM_ALL_CODES,
+  IAM_AUDIT,
   IAM_DEPARTMENT,
+  IAM_GROUP,
   IAM_IDENTITY_SOURCE,
+  IAM_INVITATION,
   IAM_PERMISSION,
   IAM_POLICY,
   IAM_ROLE,
@@ -48,8 +51,8 @@ const TENANT_ADMIN_CODES: readonly string[] = [
 ];
 
 describe("MENU_ITEMS 结构（P0 权限码声明）", () => {
-  it("8 项 3 组，顺序稳定", () => {
-    expect(MENU_ITEMS).toHaveLength(8);
+  it("11 项 3 组，顺序稳定", () => {
+    expect(MENU_ITEMS).toHaveLength(11);
     expect(MENU_GROUPS.map((g) => g.id)).toEqual([
       "overview",
       "identity",
@@ -60,24 +63,59 @@ describe("MENU_ITEMS 结构（P0 权限码声明）", () => {
       "workbench",
       "users",
       "organizations",
+      "groups",
       "tenants",
       "identity-sources",
+      "invitations",
       "roles",
       "authorizations",
       "policies",
+      "audit",
     ]);
   });
 
-  it("7 个业务项声明权限码（与路由守卫 meta.permissions 同源），工作台无码", () => {
+  it("10 个业务项声明权限码（与路由守卫 meta.permissions 同源），工作台无码", () => {
     const byKey = Object.fromEntries(MENU_ITEMS.map((i) => [i.key, i]));
     expect(byKey["workbench"]!.code).toBeUndefined();
     expect(byKey["users"]!.code).toBe(IAM_USER.VIEW);
     expect(byKey["organizations"]!.code).toBe(IAM_DEPARTMENT.VIEW);
+    expect(byKey["groups"]!.code).toBe(IAM_GROUP.VIEW);
     expect(byKey["tenants"]!.code).toBe(IAM_TENANT.VIEW);
     expect(byKey["identity-sources"]!.code).toBe(IAM_IDENTITY_SOURCE.VIEW);
+    expect(byKey["invitations"]!.code).toBe(IAM_INVITATION.VIEW);
     expect(byKey["roles"]!.code).toBe(IAM_ROLE.VIEW);
     expect(byKey["authorizations"]!.code).toBe(IAM_PERMISSION.VIEW_AUTHORIZATIONS);
     expect(byKey["policies"]!.code).toBe(IAM_POLICY.VIEW);
+    expect(byKey["audit"]!.code).toBe(IAM_AUDIT.VIEW_AUTH);
+  });
+
+  it("用户组管理项：path=/groups，归属 identity 组，图标已挂载", () => {
+    const item = MENU_ITEMS.find((i) => i.key === "groups")!;
+    expect(item.label).toBe("用户组管理");
+    expect(item.path).toBe("/groups");
+    expect(item.group).toBe("identity");
+    expect(item.code).toBe(IAM_GROUP.VIEW);
+    expect(item.icon).toBeTruthy();
+  });
+
+  it("邀请管理项：path=/invitations，归属 identity 组，adminOnly，图标已挂载", () => {
+    const item = MENU_ITEMS.find((i) => i.key === "invitations")!;
+    expect(item.label).toBe("邀请管理");
+    expect(item.path).toBe("/invitations");
+    expect(item.group).toBe("identity");
+    expect(item.code).toBe(IAM_INVITATION.VIEW);
+    expect(item.adminOnly).toBe(true);
+    expect(item.icon).toBeTruthy();
+  });
+
+  it("审计日志项：path=/audit，归属 permission 组，code=VIEW_AUTH，adminOnly，图标已挂载", () => {
+    const item = MENU_ITEMS.find((i) => i.key === "audit")!;
+    expect(item.label).toBe("审计日志");
+    expect(item.path).toBe("/audit");
+    expect(item.group).toBe("permission");
+    expect(item.code).toBe(IAM_AUDIT.VIEW_AUTH);
+    expect(item.adminOnly).toBe(true);
+    expect(item.icon).toBeTruthy();
   });
 
   it("租户/策略管理 adminOnly 双保险保留", () => {
@@ -93,15 +131,18 @@ describe("MENU_ITEMS 结构（P0 权限码声明）", () => {
 describe("visibleMenuItems（权限码驱动）", () => {
   const unrestricted = { restricted: false };
 
-  it("平台管理员 + 全码：8 项全渲染", () => {
+  it("平台管理员 + 全码：11 项全渲染", () => {
     const items = visibleMenuItems({
       codes: IAM_ALL_CODES,
       isAdmin: true,
       ...unrestricted,
     });
-    expect(items).toHaveLength(8);
+    expect(items).toHaveLength(11);
     expect(items.map((i) => i.key)).toContain("tenants");
     expect(items.map((i) => i.key)).toContain("policies");
+    expect(items.map((i) => i.key)).toContain("groups");
+    expect(items.map((i) => i.key)).toContain("invitations");
+    expect(items.map((i) => i.key)).toContain("audit");
   });
 
   it("adminOnly 双闸：非管理员即使持有租户/策略码也不渲染", () => {
@@ -172,6 +213,84 @@ describe("visibleMenuItems（权限码驱动）", () => {
     const keys = items.map((i) => i.key);
     expect(keys).not.toContain("roles");
     expect(keys).toContain("users");
+  });
+
+  it("用户组管理项需 iam:group:view 且为管理员（与路由 requiresAdmin 一致）", () => {
+    // 有码但缺权限码 → 不渲染
+    const withoutGroupView = visibleMenuItems({
+      codes: IAM_ALL_CODES.filter((c) => c !== IAM_GROUP.VIEW),
+      isAdmin: true,
+      ...unrestricted,
+    });
+    expect(withoutGroupView.map((i) => i.key)).not.toContain("groups");
+
+    // 有码但**非管理员** → 不渲染（否则点进去会被路由守卫送到 /forbidden）
+    const nonAdmin = visibleMenuItems({
+      codes: [IAM_GROUP.VIEW],
+      isAdmin: false,
+      ...unrestricted,
+    });
+    expect(nonAdmin.map((i) => i.key)).not.toContain("groups");
+
+    // 管理员 + 有码 → 渲染
+    const admin = visibleMenuItems({
+      codes: [IAM_GROUP.VIEW],
+      isAdmin: true,
+      ...unrestricted,
+    });
+    expect(admin.map((i) => i.key)).toEqual(["workbench", "groups"]);
+  });
+
+  it("邀请管理项需 iam:invitation:view 且为管理员（与路由 requiresAdmin 一致）", () => {
+    // 有码但缺权限码 → 不渲染
+    const withoutView = visibleMenuItems({
+      codes: IAM_ALL_CODES.filter((c) => c !== IAM_INVITATION.VIEW),
+      isAdmin: true,
+      ...unrestricted,
+    });
+    expect(withoutView.map((i) => i.key)).not.toContain("invitations");
+
+    // 有码但**非管理员** → 不渲染（否则点进去会被路由守卫送到 /forbidden）
+    const nonAdmin = visibleMenuItems({
+      codes: [IAM_INVITATION.VIEW],
+      isAdmin: false,
+      ...unrestricted,
+    });
+    expect(nonAdmin.map((i) => i.key)).not.toContain("invitations");
+
+    // 管理员 + 有码 → 渲染
+    const admin = visibleMenuItems({
+      codes: [IAM_INVITATION.VIEW],
+      isAdmin: true,
+      ...unrestricted,
+    });
+    expect(admin.map((i) => i.key)).toEqual(["workbench", "invitations"]);
+  });
+
+  it("审计日志项需 iam:audit:view_auth 且为管理员（与路由 requiresAdmin 一致）", () => {
+    // 缺权限码 → 不渲染
+    const withoutView = visibleMenuItems({
+      codes: IAM_ALL_CODES.filter((c) => c !== IAM_AUDIT.VIEW_AUTH),
+      isAdmin: true,
+      ...unrestricted,
+    });
+    expect(withoutView.map((i) => i.key)).not.toContain("audit");
+
+    // 有码但**非管理员** → 不渲染（否则点进去会被路由守卫送到 /forbidden）
+    const nonAdmin = visibleMenuItems({
+      codes: [IAM_AUDIT.VIEW_AUTH, IAM_AUDIT.VIEW_OPERATION],
+      isAdmin: false,
+      ...unrestricted,
+    });
+    expect(nonAdmin.map((i) => i.key)).not.toContain("audit");
+
+    // 管理员 + 有码 → 渲染
+    const admin = visibleMenuItems({
+      codes: [IAM_AUDIT.VIEW_AUTH],
+      isAdmin: true,
+      ...unrestricted,
+    });
+    expect(admin.map((i) => i.key)).toEqual(["workbench", "audit"]);
   });
 });
 

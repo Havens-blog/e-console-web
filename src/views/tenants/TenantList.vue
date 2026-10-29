@@ -375,6 +375,11 @@ function onMembersRemoved(): void {
   void store.fetch();
 }
 
+/** 成员添加成功 → 同样刷新租户列表（用量列 +1，与移除同口径；feat-tenant-assign-member §2.3） */
+function onMembersAssigned(): void {
+  void store.fetch();
+}
+
 // ---- 详情抽屉（feat-tenant-detail-ui 契约 §2.4）----
 // 行内「详情」按钮仅对持有 iam:tenant:get 的管理员渲染；打开后抽屉自拉详情（只读）。
 const detailTenant = ref<{ id: number; name: string } | null>(null);
@@ -1055,6 +1060,7 @@ const hasActiveFilters = computed(
       :tenant="membersTenant"
       @close="closeMembers"
       @removed="onMembersRemoved"
+      @assigned="onMembersAssigned"
     />
 
     <!-- 租户详情抽屉（feat-tenant-detail-ui 契约 §2.4；只读）-->

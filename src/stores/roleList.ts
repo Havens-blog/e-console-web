@@ -3,6 +3,7 @@
  *
  * 统一契约：state{items, total, page, pageSize(默认 20、上限 100), loading, error}
  * + fetch/create/update/remove；AbortController fetch 前中断在途（AC-3）。
+ * feat-role-batch-delete 增量：batchRemove(ids)（写前守卫 → role/batch_delete → 重拉）。
  *
  * 跨标签租户一致性（tech-design §Integration Specs 6，task 3.1 接入）：
  * - 响应回读：fetch 成功后 assertResponseTenantMatch（role/list 响应无租户标识 → 跳过此层，
@@ -28,6 +29,7 @@ import { ref } from "vue";
 import {
   assignUsersToRole,
   attachPoliciesToRole,
+  batchDeleteRoles,
   createRole,
   deleteRole,
   detachPoliciesFromRole,
@@ -240,6 +242,30 @@ export const useRoleListStore = defineStore("roleList", () => {
     }
   }
 
+  /**
+   * 批量删除角色（feat-role-batch-delete 契约 §2.2：写前守卫 → batchDeleteRoles → 重拉）。
+   *
+   * - 写前守卫不得绕过（Hard Rule）：快照与 currentTenantId 不一致 → 返回 false 且不发请求；
+   * - 成功后 `fetch()` 重拉（fetch 内建 E7：批量删除使末页变空 → 回落最后页重查），
+   *   分页/筛选态由 store 自持，天然保持当前页与关键词；
+   * - 被拒（如角色仍被用户/策略引用）**重新抛出**：store.error 经 contractText 归一，
+   *   不能作为「服务端 msg 原文」来源 —— 调用方须用 ApiError.message 原文展示。
+   * @param ids 待删除角色 id 列表（数字数组）
+   * @returns 是否成功（被拒时抛出，不返回 false）
+   */
+  async function batchRemove(ids: number[]): Promise<boolean> {
+    if (!enforceWriteGuard()) return false;
+    try {
+      await batchDeleteRoles(ids);
+      await fetch();
+      return true;
+    } catch (err) {
+      error.value = errorMessage(err);
+      // 重新抛出：调用方展示 ApiError.message 原文（契约 §2.2 被拒口径，不得改写）
+      throw err;
+    }
+  }
+
   // ---- 策略/用户绑定（写前守卫 + 失败归位 error）----
 
   /**
@@ -360,6 +386,7 @@ export const useRoleListStore = defineStore("roleList", () => {
     create,
     update,
     remove,
+    batchRemove,
     applyPolicyDelta,
     applyUserDelta,
     setKeyword,
