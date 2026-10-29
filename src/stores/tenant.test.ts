@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 /**
  * tenant store（2.7）契约测试。
  *
@@ -162,6 +162,10 @@ describe("tenant store（2.7 AC-2 + AC-3 + AC-4）", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]?.headers?.["X-Active-Tenant-ID"]).toBe("4");
     expect(captured[0]?.url).toBe("/api/iam/tenant/switch");
+      // 必须发送请求体 {tenant_id}：后端 SwitchTenantReq 读取的是 body 的 tenant_id，
+      // 只发送 X-Active-Tenant-ID 头会让 gin 绑定失败 → HTTP 400，
+      // 从而导致该切换入口完全不可用（页面还不会报错）。
+      expect(JSON.parse(String(captured[0]?.data))).toEqual({ tenant_id: 4 });
     expect(replaced).toEqual(["http://localhost:8888/console/workbench"]);
   });
 

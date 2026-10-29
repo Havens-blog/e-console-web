@@ -76,10 +76,18 @@ export const useTenantStore = defineStore("tenant", () => {
     error.value = null;
     try {
       await unwrapEnvelope<void>(
-        eiamAxios.post("/api/iam/tenant/switch", null, {
-          headers: { [ACTIVE_TENANT_HEADER]: String(id) },
-          signal: abort.signal,
-        }),
+        eiamAxios.post(
+          "/api/iam/tenant/switch",
+          // 必须发送请求体：后端 SwitchTenantReq 读取的是 body 的 tenant_id
+          // （ginx.BS[SwitchTenantReq]，tenant/handler.go）。
+          // 此前只发 X-Active-Tenant-ID 头、请求体传 null → 后端拿不到 tenant_id
+          // → gin 绑定失败返回 HTTP 400，导致**该切换入口从未生效**（且页面不报错）。
+          { tenant_id: id },
+          {
+            headers: { [ACTIVE_TENANT_HEADER]: String(id) },
+            signal: abort.signal,
+          },
+        ),
       );
       // eiam 已销毁旧 session 重签 JWT + Set-Cookie 下发新 cookie（parity §6.1.6）。
       // 整页 reload：reload 后路由守卫重拉 profile 获得新租户上下文，杜绝 SPA 内只换 store。
