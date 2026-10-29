@@ -1,0 +1,31 @@
+// ============================================
+// 减弱动效偏好（prefers-reduced-motion）
+// ============================================
+// 背景：本仓存在由交互触发的位移类动画，例如：
+//   - MainLayout 侧边栏  transform 300ms
+//   - 卡片 hover 位移    transform 120ms
+//   - AppSwitcher / 列表项  all 120~250ms
+// 对前庭功能敏感的用户，这类位移可能引起眩晕或不适。
+// 系统提供的「减弱动效」开关（macOS 辅助功能 / Windows 动画效果 / Android 移除动画）应当被尊重，
+// 这也是 WCAG 2.3.3「动画源自交互」的取向。
+//
+// 写法说明：把时长压到 0.01ms 而不是 `none`。
+// 原因是 `transitionend` / `animationend` 事件在 `none` 时不会派发，
+// 会有依赖事件回调的交互逻辑被静默打断；0.01ms 仍会正常派发事件，
+// 而视觉上已经没有过渡过程，直接到达终态。
+//
+// 只改「动效时长」，不改变任何终态样式与布局。
+// 使用 !important 是必要的：组件内的 transition/animation 声明优先级各异，
+// 这里是全局偏好覆盖，属于该写法（业界通行）的唯一可靠方式。
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
