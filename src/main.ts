@@ -16,6 +16,8 @@ import { enforceWriteGuard } from "./utils/tenantGuard";
 // sha256 × 源 commit 登记于 shared-hashes.json，CI 漂移对比由 2.11 承接）
 import "./assets/styles/theme-variables.scss";
 import "./assets/styles/element-theme.scss";
+// 尊重系统「减弱动效」偏好（WCAG 2.3.3 取向）；本仓自有文件，不参与跨仓漂移对比。
+import "./assets/styles/reduced-motion.scss";
 
 // 装配：Vue / Router / Pinia 三件基础设施 + 主题恢复。
 // 数据流单向闭环 view → stores → api/eiamAxios 自 2.4（请求层）/ 2.6（守卫）/
