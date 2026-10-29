@@ -365,9 +365,10 @@ onMounted(() => {
       <header class="workbench-hero">
         <div class="hero-main">
           <p class="hero-greeting">{{ greeting }} · {{ todayLabel }}</p>
-          <h2 class="hero-title">
+          <!-- 工作台是本模块的落地页：主标题用 h1（此前是 h2，导致整页无 h1） -->
+          <h1 class="hero-title">
             欢迎{{ welcomeName ? "，" + welcomeName : "" }}
-          </h2>
+          </h1>
 
           <dl class="workbench-profile" data-testid="workbench-profile">
             <div class="workbench-profile-field">
@@ -434,7 +435,7 @@ onMounted(() => {
         aria-label="快捷操作"
         data-testid="workbench-quick"
       >
-        <h3 class="section-title">快捷操作</h3>
+        <h2 class="section-title">快捷操作</h2>
         <ul class="quick-grid">
           <li v-for="a in quickActions" :key="a.key" class="quick-wrap">
             <button
@@ -462,7 +463,7 @@ onMounted(() => {
         aria-label="应用快捷导航"
         data-testid="workbench-apps"
       >
-        <h3 class="section-title">应用导航</h3>
+        <h2 class="section-title">应用导航</h2>
         <ul
           class="workbench-app-cards"
           :data-disabled="cardsDisabled ? 'true' : undefined"
@@ -502,7 +503,7 @@ onMounted(() => {
 
       <!-- 公告（静态占位） -->
       <section class="workbench-notices" aria-label="公告" data-testid="workbench-notices">
-        <h3 class="section-title">公告</h3>
+        <h2 class="section-title">公告</h2>
         <ul class="notice-list">
           <li v-for="n in notices" :key="n.id" class="notice-item">
             <span class="notice-tag">{{ n.tag }}</span>

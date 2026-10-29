@@ -224,7 +224,8 @@ function go(path: string): void {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-tertiary);
+  /* 原用 --text-tertiary，在侧栏底上仅 3.02:1（AA 需 4.5）→ 次文字色，实测 5.36:1 */
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
