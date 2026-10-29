@@ -9,7 +9,9 @@ declare module 'vue' {
   export interface GlobalComponents {
     AppHeader: typeof import('./components/layout/AppHeader.vue')['default']
     AppSwitcher: typeof import('./components/AppSwitcher.vue')['default']
+    CommandPalette: typeof import('./components/layout/CommandPalette.vue')['default']
     CopyContractText: typeof import('./components/CopyContractText.vue')['default']
+    DonutChart: typeof import('./components/DonutChart.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElDropdown: typeof import('element-plus/es')['ElDropdown']
     ElDropdownItem: typeof import('element-plus/es')['ElDropdownItem']
@@ -23,6 +25,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SidebarMenu: typeof import('./components/layout/SidebarMenu.vue')['default']
+    Sparkline: typeof import('./components/Sparkline.vue')['default']
     StatusBadge: typeof import('./components/StatusBadge.vue')['default']
     TenantSelector: typeof import('./components/TenantSelector.vue')['default']
   }

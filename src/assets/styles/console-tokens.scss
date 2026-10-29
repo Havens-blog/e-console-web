@@ -1,0 +1,67 @@
+// ============================================
+// 控制台自有设计令牌（console-owned，非拷贝面）
+//
+// 为什么单独一个文件：element-theme.scss 仍是 e-cam-web 的逐字节拷贝面（受
+// shared-hashes.json 漂移防线锚定，任何改动都会触发 CI 变红）；主题令牌
+// theme-variables.scss 已单源化下沉到 @haven/ui/theme（阶段 2 tokens，不再是拷贝面）。
+// 工作台驾驶舱需要的「语义状态色体系」属控制台自有扩展，故在此 console-local 文件
+// 定义，import 顺序在主题令牌/EP 覆盖之后以叠加生效，互不污染。
+//
+// 语义状态色（靛紫=品牌主色，状态色与品牌色分离，便于一眼区分状态 vs 操作）：
+//   青绿 success —— 正常 / 连接成功 / 运行中
+//   橙   warning —— 注意 / 同步延迟 / 成本上涨 / 已停止
+//   红   danger  —— 异常 / 告警 / 连接失败
+//   蓝   info    —— 信息 / 同步 / 辅助状态
+// ============================================
+
+// ---- 深色主题（默认）：取偏亮调，保证近黑底可读（brief 规格值）----
+// 实测比值（fg vs 最亮深色卡底 #191a1b surface，最坏情形，正常文本阈值 4.5:1）：
+//   success #42d6a4 → 9.45:1 ✓   warning #f0b866 → 9.75:1 ✓
+//   danger  #ff7187 → 6.61:1 ✓   info    #55b9f5 → 8.00:1 ✓（更暗的 base/elevated 底更高）
+:root {
+  --status-success: #42d6a4;
+  --status-warning: #f0b866;
+  --status-danger: #ff7187;
+  --status-info: #55b9f5;
+
+  // 云资源驾驶舱「健康签名色」（青，对齐原型 --d-cyan；独立于通用 success，
+  // 专用于平台状态胶囊 ok 态 / 资源运行率 / 资源健康环图运行段 + 图例）：
+  //   #3bd4bd on #191a1b → 9.41:1（文字/图形皆安全）；#5ce0ca 更亮，供胶囊标签文字
+  --cloud-cyan: #3bd4bd;
+  --cloud-cyan-strong: #5ce0ca;
+}
+
+// ---- 浅色主题：取较深调，保证白底(#ffffff surface)文字对比度 ≥ WCAG AA 4.5:1 ----
+// 实测比值（scripts 对比度核算，fg vs #ffffff，正常文本阈值 4.5:1）：
+//   success #0b7d55 → 5.15:1 ✓   warning #a85f10 → 4.87:1 ✓
+//   danger  #d13350 → 4.88:1 ✓   info    #1673b5 → 5.06:1 ✓
+// 先前取值 #0f9d6b/#c77b1a/#1b7fc4 当小字文案用时仅 3.3~4.3:1，未达 AA，已压暗同色相修正。
+:root.light {
+  --status-success: #0b7d55;
+  --status-warning: #a85f10;
+  --status-danger: #d13350;
+  --status-info: #1673b5;
+
+  // 浅色主题：青色压暗保证白底可读（#0a7d6c on #ffffff → 5.04:1 ✓ AA）；
+  // strong 态白底不作文字用（仅深色胶囊标签），回退同值即可。
+  --cloud-cyan: #0a7d6c;
+  --cloud-cyan-strong: #0a7d6c;
+}
+
+// ============================================
+// 全局重置（console-owned）
+//
+// 拷贝面 theme-variables.scss 的 `html, body, #app` 规则只设了 transition，未重置
+// 浏览器默认的 body 8px margin。症状：body margin 把 100vh 的 .layout 顶出视口 →
+// 文档高 = 100vh + 16px 溢出 → body/html 外层滚动条；同时 .layout-content 自身
+// overflow-y:auto 内层滚动条 → 双滚动条 + 四周留白（深色壳未铺满视口边缘）。
+//
+// 拷贝面字节锁定（shared-hashes.json 漂移防线）不可改，故在此 console-local 补全重置
+// （import 顺序在拷贝面之后，叠加生效）。只重置 margin/height——不在 body 上加
+// overflow:hidden（会误伤登录/403 页小屏滚动），滚动仍由 .layout-content 单一承载。
+// ============================================
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
