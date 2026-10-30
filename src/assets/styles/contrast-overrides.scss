@@ -1,0 +1,43 @@
+// ============================================
+// 对比度覆盖（控制台自有，非拷贝面）
+// ============================================
+// 为什么单独一个文件：
+//   `theme-variables.scss` 与 `element-theme.scss` 是 e-cam-web 的**逐字节拷贝面**，
+//   受 `shared-hashes.json` 漂移防线锚定，任何改动都会让 CI 的 Drift Compare 变红。
+//   因此本仓需要调整主题令牌时，一律在此 console-local 文件里**叠加覆盖**，
+//   import 顺序放在主题令牌之后（见 src/main.ts），不改拷贝面本身。
+//
+// 本文件当前只处理一项：三级文字 `--text-tertiary` 的对比度。
+//
+// 问题：原值 `#62666d` 在深色底上远低于 WCAG 1.4.3 AA 的 4.5:1 ——
+//   卡片/侧栏底 rgb(25,26,27) = 3.02、页面底 rgb(15,16,17) = 3.30。
+//   而它是**承载信息**的文字色，实测受影响的有工作台的 `.quick-desc`（3.35，13 处）、
+//   `.workbench-profile-label`（3.02）、`.notice-date`（3.02）等。
+//
+// 取值由既有令牌派生、不引入新色相：与 `--text-secondary` 混入少量黑同档，
+//   在卡片底 4.63、页面底 5.06，均达标；同时仍**明显暗于 secondary（5.86）与正文（16.4）**，
+//   三档层次（tertiary < secondary < regular）依然可辨。
+//
+// 与 e-cam-web 的一致性：CAM 侧已在 `pages-dark.scss` 用**完全相同**的表达式修过同一个 token
+//   （两仓 `theme-variables.scss` 至今仍字节一致，说明源文件没动、都是运行时覆盖）。
+//   此前主站没做等效覆盖，导致同一个令牌在两个产品里呈现不同亮度；本文件把两者对齐。
+:root {
+  --text-tertiary: color-mix(in srgb, var(--text-secondary) 92%, #000);
+}
+
+// ============================================
+// EP「浅底实心」按钮（is-plain）的文字对比度
+// ============================================
+// Element Plus 的 plain 变体把文字色设为语义色本身（`--el-button-text-color: var(--el-color-primary)`），
+// 背景是该色的浅底。深色底上实测 `type="primary" plain` 的文字只有 3.87:1（WCAG 1.4.3 AA 需 4.5），
+// 出现在 403 页的「返回工作台」按钮上。
+//
+// 只提亮**文字**，不动背景与描边（那两处是浅底/边框，不承载正文对比度）；
+// 也不改 `--el-color-primary` 本身——它还用于实心主按钮的底色（白字压它），整体提亮会让那边变差。
+// 与 e-cam-web 侧的处理保持一致（同一取舍在 CAM 已落地）。
+//
+// 特异性 (0,3,0)：EP 内置的 `.el-button--primary.is-plain` 是 (0,2,0)，需高一级才能覆盖。
+.el-button--primary.is-plain.is-plain {
+  --el-button-text-color: color-mix(in srgb, var(--el-color-primary) 70%, #fff);
+  color: color-mix(in srgb, var(--el-color-primary) 70%, #fff);
+}

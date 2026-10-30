@@ -16,6 +16,9 @@ import { enforceWriteGuard } from "./utils/tenantGuard";
 // sha256 × 源 commit 登记于 shared-hashes.json，CI 漂移对比由 2.11 承接）
 import "./assets/styles/theme-variables.scss";
 import "./assets/styles/element-theme.scss";
+// 对比度覆盖（本仓自有文件，不参与跨仓漂移对比）：主题令牌在此叠加修正，
+// 从而无需改动受 shared-hashes.json 锚定的拷贝面。
+import "./assets/styles/contrast-overrides.scss";
 // 尊重系统「减弱动效」偏好（WCAG 2.3.3 取向）；本仓自有文件，不参与跨仓漂移对比。
 import "./assets/styles/reduced-motion.scss";
 
