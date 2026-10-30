@@ -269,4 +269,22 @@ function onToggleCollapse(): void {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 手机窄屏（≤560）：顶栏放不下「折叠钮 + 面包屑 + 平台导航 + 租户选择器 + 主题 + 用户」。
+   390 视口实测：.header-left 需要 187px 却只分到 139px，导致「平台导航」被压到 13px 宽、
+   中文逐字竖排成 68px 高的竖条；租户选择器更被压到 20px，等于不可用。
+   取舍：窄屏隐藏面包屑（当前页标题在正文 h1 里已有）与租户选择器
+   （工作台的「我的信息」卡里有租户，且 /tenant-select 是独立页），
+   保留折叠钮、平台导航、主题切换、用户菜单这四项真正需要随时可达的操作。 */
+@media (max-width: 560px) {
+  .header-left,
+  .header-right {
+    gap: 8px;
+  }
+
+  .header-breadcrumb,
+  .header-actions {
+    display: none;
+  }
+}
 </style>

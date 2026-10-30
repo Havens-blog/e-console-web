@@ -35,7 +35,10 @@ async function loginAsAdmin(page: Page): Promise<void> {
     await page.goto(`${BASE_URL}/console/login`, { waitUntil: 'networkidle' })
     await page.getByTestId('username').fill(ADMIN_USER)
     await page.getByTestId('password').fill(ADMIN_PWD)
-    await page.getByRole('button', { name: '登录工作台', exact: true }).click()
+    // 登录按钮的可访问名是「登录」（与 eiam-sso-login/helpers.ts 及本仓其它 spec 一致）。
+    // 这里原先写的是「登录工作台」，与页面对不�� → 本套件 62 个用例全部卡在登录步骤超时，
+    // 等于长期没有真正执行过，也就不可能发现任何响应式回归。
+    await page.getByRole('button', { name: '登录', exact: true }).click()
     try {
       await page.waitForURL(/\/console\/(tenant-select|workbench)$/, {
         timeout: 20_000,
