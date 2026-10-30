@@ -124,9 +124,12 @@ test.describe('IAM 治理页窄屏响应式', () => {
   test('窄屏 390：角色列表表头不竖排且可横向滚动', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await loginAsAdmin(page)
-    await page.goto(`${BASE_URL}${ROLES_PATH}`, { waitUntil: 'networkidle' })
+    // 不用 waitUntil:'networkidle'：本仓已有记录说明该页长轮询会让 networkidle 迟迟不落定，
+    // 全量套件里这条用例曾因此耗时 22s 并在随后的 toBeVisible 处失败（独立跑 3/3 通过）。
+    // 列表是否就绪由下面的 toBeVisible 显式等待即可，不依赖「网络静默」这个间接信号。
+    await page.goto(`${BASE_URL}${ROLES_PATH}`, { waitUntil: 'domcontentloaded' })
 
-    await expect(page.locator('table.data-table')).toBeVisible()
+    await expect(page.locator('table.data-table')).toBeVisible({ timeout: 15_000 })
     expect(await maxHeaderHeight(page)).toBeLessThan(48)
     expect(await tableScrollOverflow(page)).toBeGreaterThan(0)
     await expect(page.locator('.table-hint')).toBeVisible()
@@ -1559,6 +1562,13 @@ test.describe('详情页加载态可播报', () => {
     await expect(status).toHaveCount(1)
     await expect(status).toContainText('正在加载角色详情')
 
+    // 先等详情真正渲染出来，再 unroute。
+    // 上面的 route 处理器会先等 1800ms 才 continue；若在它还在等待时就 unroute，
+    // 处理器随后的 route.continue() 会抛 "Route is already handled!"，
+    // 请求因此永远不完成 → 加载文案不会清空 → 下面的 toHaveText('') 必然失败。
+    // 这里与「用户详情」用例保持同一步骤（它先等 .detail-form 可见），
+    // 实测修复前 3 次跑挂 1 次，修复后 3/3 稳定通过。
+    await expect(page.locator('.detail-form')).toBeVisible({ timeout: 10_000 })
     await page.unroute('**/api/iam/role/detail**')
     await expect(status).toHaveText('', { timeout: 10_000 })
   })
