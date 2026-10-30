@@ -263,11 +263,14 @@ function go(path: string): void {
 .sidebar-item.is-active {
   // active = color-mix(accent-primary 15%, transparent) 底 + accent-blue 文字/图标（UF-2）
   background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
-  color: var(--accent-blue);
+  /* 品牌蓝直接作文字叠在「品牌蓝 15% 浅底」上，实测仅 3.89:1（WCAG 1.4.3 AA 需 4.5）。
+     与白混 28% 提亮后为 5.91:1，色相不变，视觉上仍是同一个强调色。 */
+  color: color-mix(in srgb, var(--accent-blue) 72%, #fff);
 }
 
 .sidebar-item.is-active .sidebar-item-icon {
-  color: var(--accent-blue);
+  /* 与文字同步提亮，避免同一激活项里图标与文字色不一致 */
+  color: color-mix(in srgb, var(--accent-blue) 72%, #fff);
 }
 
 .sidebar-item-icon {
