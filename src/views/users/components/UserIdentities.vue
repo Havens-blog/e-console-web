@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   用户外部身份绑定区块（feat-user-identity-unbind）
 
   用户场景：管理员发现某员工绑定了错误的 OIDC / 微信 / 飞书 / passkey 身份，
@@ -20,6 +20,16 @@
         @click="load"
       >
         刷新
+      </button>
+      <!-- 治理外部身份（IAM_USER.MANAGE_IDENTITY）：缺码不渲染入口、不发请求 -->
+      <button
+        v-if="canManage"
+        type="button"
+        class="btn btn--text"
+        data-testid="identity-manage-open"
+        @click="openManage"
+      >
+        治理外部身份
       </button>
     </header>
 
@@ -61,11 +71,42 @@
     <p v-if="actionError" class="state-error" role="alert" data-testid="identities-action-error">
       {{ actionError }}
     </p>
-  </section>
+    <div v-if="manageOpen" class="dialog-overlay" data-testid="identity-manage-dialog">
+      <div class="dialog dialog--sm" role="dialog" aria-modal="true" aria-label="治理外部身份">
+        <header class="dialog__head">
+          <h3>治理外部身份</h3>
+          <button type="button" class="btn btn--text" aria-label="关闭" @click="closeManage">✕</button>
+        </header>
+        <div class="dialog__body">
+          <p class="muted">仅填写需要绑定的字段；<strong>未填写的 provider 不会被改动</strong>（精确解绑请用行内「解绑」）。</p>
+          <label class="field">
+            <span class="field__label">LDAP DN</span>
+            <input v-model="formLdapDN" class="input" type="text" data-testid="identity-manage-ldap-dn" placeholder="uid=alice,dc=example,dc=com" />
+          </label>
+          <label class="field">
+            <span class="field__label">微信 UserID</span>
+            <input v-model="formWechatID" class="input" type="text" data-testid="identity-manage-wechat-id" placeholder="wx-user-id" />
+          </label>
+          <label class="field">
+            <span class="field__label">飞书 UserID</span>
+            <input v-model="formFeishuID" class="input" type="text" data-testid="identity-manage-feishu-id" placeholder="fs-user-id" />
+          </label>
+          <p v-if="manageError" class="state-error" role="alert" data-testid="identity-manage-error">{{ manageError }}</p>
+        </div>
+        <div class="dialog__actions">
+          <button type="button" class="btn btn--ghost" data-testid="identity-manage-cancel" @click="closeManage">取消</button>
+          <button type="button" class="btn" :disabled="managing || !hasManageInput" data-testid="identity-manage-submit" @click="submitManage">
+            {{ managing ? "提交中…" : "提交" }}
+          </button>
+        </div>
+      </div>
+    </div>
+    </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { manageUserIdentity } from "@/api/users";
 import {
   listUserIdentities,
   unbindUserIdentity,
@@ -118,6 +159,51 @@ async function unbind(item: UserIdentity): Promise<void> {
 }
 
 onMounted(load);
+// ---- 治理外部身份（feat-user-identity-manage）----
+/** 能力门控：缺码不渲染入口、不发请求 */
+const canManage = computed<boolean>(() => can(IAM_USER.MANAGE_IDENTITY));
+const manageOpen = ref(false);
+const managing = ref(false);
+const manageError = ref("");
+const formLdapDN = ref("");
+const formWechatID = ref("");
+const formFeishuID = ref("");
+/** 至少填一个字段才允许提交（空提交是无意义的 no-op） */
+const hasManageInput = computed<boolean>(
+  () =>
+    formLdapDN.value.trim() !== "" ||
+    formWechatID.value.trim() !== "" ||
+    formFeishuID.value.trim() !== "",
+);
+
+function openManage(): void {
+  manageError.value = "";
+  manageOpen.value = true;
+}
+function closeManage(): void {
+  manageOpen.value = false;
+  manageError.value = "";
+}
+async function submitManage(): Promise<void> {
+  managing.value = true;
+  manageError.value = "";
+  try {
+    await manageUserIdentity(props.userId, {
+      ldapDN: formLdapDN.value.trim() || undefined,
+      wechatUserID: formWechatID.value.trim() || undefined,
+      feishuUserID: formFeishuID.value.trim() || undefined,
+    });
+    formLdapDN.value = "";
+    formWechatID.value = "";
+    formFeishuID.value = "";
+    closeManage();
+    await load();
+  } catch (err) {
+    manageError.value = err instanceof Error ? err.message : "治理外部身份失败";
+  } finally {
+    managing.value = false;
+  }
+}
 </script>
 
 <style scoped lang="scss">

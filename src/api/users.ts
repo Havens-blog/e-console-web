@@ -495,3 +495,29 @@ export async function batchDeleteUsers(ids: number[]): Promise<void> {
     eiamAxios.post<Envelope<null>>("/api/iam/user/batch_delete", { ids }),
   );
 }
+
+/**
+ * 治理用户外部身份（POST /api/iam/user/identity/manage）。
+ *
+ * 语义（2026-10-30 后端已按产品口径修正）：**只绑定/更新**，不再隐式解绑——
+ * 旧实现在 provider 块为空时会连带删除该 provider 的全部绑定（"只更新 LDAP"会删掉 wechat/feishu）。
+ * 因此本函数只提交"非空"的 provider 块：未填写的 provider 一律不下发（既不解绑也不会误删）。
+ *
+ * 精确解绑请走 unbindUserIdentity（必带 identityId）。
+ */
+export async function manageUserIdentity(
+  userId: number,
+  payload: {
+    ldapDN?: string;
+    wechatUserID?: string;
+    feishuUserID?: string;
+  },
+): Promise<void> {
+  const body: Record<string, unknown> = { user_id: userId };
+  if (payload.ldapDN) body.ldap_info = { dn: payload.ldapDN };
+  if (payload.wechatUserID) body.wechat_info = { user_id: payload.wechatUserID };
+  if (payload.feishuUserID) body.feishu_info = { user_id: payload.feishuUserID };
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/user/identity/manage", body),
+  );
+}
