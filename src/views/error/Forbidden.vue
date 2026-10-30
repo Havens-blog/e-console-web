@@ -50,7 +50,14 @@ const requiredCodes = computed(() =>
 
 <style scoped>
 .forbidden-page {
-  min-height: 60vh;
+  /* 本页渲染在应用外壳（MainLayout）之外，不继承它的 background。
+     原先只有 color: var(--text-primary)（近白）而没有背景 → 落成浏览器默认白底，
+     实测主标题「无权限执行该操作」白字白底仅 1.06:1（几乎不可见），
+     提示文案 3.25:1、权限码 3.84:1 同因不达标。
+     与 Login / TenantSelect 两个裸页保持一致，这里补上主题背景；
+     同时用 100vh 让深色铺满视口（原 60vh 会在下方留出白带）。 */
+  min-height: 100vh;
+  background: var(--bg-base);
   display: flex;
   flex-direction: column;
   align-items: center;
