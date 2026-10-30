@@ -499,3 +499,27 @@ describe("OrgMembersCard：移除成员（二次确认）", () => {
     expect(removeMock).toHaveBeenCalledTimes(1);
   });
 });
+
+// 成员列表按 IAM_DEPARTMENT.MEMBERS 裁剪（feat-dept-members-gate）：
+// 该能力码此前在 console 侧零使用 —— /department/members 由服务端强制校验，
+// 缺码时卡片照常渲染只会得到 403 + "加载失败"的成员区。
+describe("OrgMembersCard：成员列表按 IAM_DEPARTMENT.MEMBERS 裁剪", () => {
+  it("缺 MEMBERS 码 → 整个成员卡片不渲染（即使有 ASSIGN/REMOVE）", async () => {
+    const { wrapper } = await mountCard({
+      permissions: [IAM_DEPARTMENT.ASSIGN, IAM_DEPARTMENT.REMOVE],
+    });
+
+    expect(wrapper.find(".card").exists()).toBe(false);
+    expect(wrapper.findAll('[data-testid="dept-member-row"]')).toHaveLength(0);
+    expect(wrapper.text()).not.toContain("成员列表");
+  });
+
+  it("有 MEMBERS 码 → 正常渲染成员行", async () => {
+    const { wrapper } = await mountCard({
+      permissions: [IAM_DEPARTMENT.MEMBERS],
+    });
+
+    expect(wrapper.find(".card").exists()).toBe(true);
+    expect(wrapper.findAll('[data-testid="dept-member-row"]')).toHaveLength(1);
+  });
+});

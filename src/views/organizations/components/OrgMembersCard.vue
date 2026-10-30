@@ -39,6 +39,14 @@ const store = useOrgListStore();
 // 添加/移除入口的按钮级裁剪（词表 IAM_DEPARTMENT.ASSIGN / REMOVE，仅体验层）
 const { can } = useCan();
 
+/**
+ * 成员列表可见性（iam:department:members）。
+ *
+ * 为什么必须裁剪：`/department/members` 由该能力码在服务端强制校验；
+ * 缺码用户若能进到本卡片，只会得到 403 + 一个"加载失败"的成员区（无法处置）。
+ */
+const canViewMembers = computed<boolean>(() => can(IAM_DEPARTMENT.MEMBERS));
+
 // ---- 成员分页 ----
 const membersTotalPages = computed(() =>
   store.membersTotal <= 0
@@ -270,7 +278,10 @@ watch(
 </script>
 
 <template>
-  <div class="card">
+  <!-- 成员列表可见性（IAM_DEPARTMENT.MEMBERS）：
+       成员端点由该能力码强制校验，缺码时若照常渲染，用户只会看到一个永远加载失败的卡片
+       （且白发一次必然 403 的请求）—— 故整卡按码裁剪，与词表"三级裁剪"口径一致。 -->
+  <div v-if="canViewMembers" class="card">
     <div class="card__head">
       <span class="card__title">成员列表</span>
       <div class="card__head-actions">
