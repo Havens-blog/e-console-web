@@ -27,6 +27,7 @@
  */
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
+import { useUserStore } from "./user";
 import {
   createOrganization,
   deleteOrganization,
@@ -38,6 +39,7 @@ import {
   type DeptMember,
   type UpdateOrganizationPayload,
 } from "@/api/organizations";
+import { IAM_DEPARTMENT } from "@/config/permission-codes";
 import {
   ApiError,
   type Organization,
@@ -228,6 +230,12 @@ export const useOrgListStore = defineStore("orgList", () => {
    * - total 即关联用户数（详情面板 user_count + 删除预检数据源）。
    */
   async function fetchMembers(deptId: number): Promise<boolean> {
+    // 缺 `iam:department:members` 时直接跳过：该端点由服务端强制校验，发了必然 403；
+    // 成员卡片本身也按同一能力码裁剪（OrgMembersCard 的 v-if），故跳过不会造成"卡片空白"。
+    if (!useUserStore().permissions.includes(IAM_DEPARTMENT.MEMBERS)) {
+      return true;
+    }
+
     if (membersAbort) membersAbort.abort();
     const abort = new AbortController();
     membersAbort = abort;

@@ -20,6 +20,8 @@ import {
   type InternalAxiosRequestConfig,
 } from "axios";
 import { createPinia, setActivePinia } from "pinia";
+import { useUserStore } from "@/stores/user";
+import { IAM_DEPARTMENT } from "@/config/permission-codes";
 import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "vue";
@@ -197,6 +199,11 @@ async function freshStore(
   setActivePinia(pinia);
   snapshotMock.mockReturnValue(5);
   useTenantStore().setCurrentTenantId(5);
+  // fetchMembers 缺 `iam:department:members` 时会跳过请求（避免必然 403），
+  // 本文件验证 store 行为，故显式声明该能力码（与 OrgMembersCard 的门控口径一致）。
+  (useUserStore() as unknown as { permissions: string[] }).permissions = [
+    IAM_DEPARTMENT.MEMBERS,
+  ];
   return { store: useOrgListStore(), calls };
 }
 
