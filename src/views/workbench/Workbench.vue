@@ -913,6 +913,18 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
+// 中等宽度（1024–1360）：我的信息由 4 列改 2 列。
+// `.workbench-profile` 默认是 repeat(4, minmax(0,1fr))，1024 视口下每列只有 118px，
+// 而「所属租户」这类值（深圳市嘉立创科技发展有限公司）需要 196px，
+// 实测被裁：1024 → 78px、1180 → 39px、1280 → 14px、1300 → 9px；
+// 1366 起每列才够 196px（不裁）。改成 2 列后 1024/1180 均为 196px 全显。
+// 值本身保留了 nowrap+ellipsis，所以即便将来出现更长名称也只会省略号，不会撑破布局。
+@media (max-width: 1360px) {
+  .workbench-profile {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 // 窄屏（< 1024px）：我的信息单列；卡片保持 2 列（不另引入断点）
 @media (max-width: 1023px) {
   .workbench-profile {
