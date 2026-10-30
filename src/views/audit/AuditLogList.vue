@@ -315,7 +315,8 @@ onMounted(async () => {
 <template>
   <section class="page-audit" :aria-busy="authLoading || opLoading" data-testid="page-audit">
     <header class="page-head">
-      <h2 class="page-title">审计日志</h2>
+      <!-- 页面主标题用 h1（原为 h2，导致整页没有 h1）；.page-title 已显式定义 20px/600/margin:0，视觉不变 -->
+      <h1 class="page-title">审计日志</h1>
       <p class="page-subtitle">认证与操作留痕，只读（不可编辑 / 删除）</p>
     </header>
 
