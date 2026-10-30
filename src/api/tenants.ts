@@ -387,3 +387,20 @@ export async function setDefaultTenant(tenantId: number): Promise<void> {
     }),
   );
 }
+
+/**
+ * 系统管理员强制删除租户（DELETE /api/iam/tenant/force_delete/:id?confirm_name=…）。
+ *
+ * 与 deleteTenant 的区别：常规删除要求"租户已清空"，而创建者不可移除自己、admin 亦不可被移除，
+ * 一旦租户由当前管理员创建就形成"建了删不掉"的死锁（需求 3 未覆盖的运维死锁）。
+ * 本接口由系统管理员使用：会**连同该租户的成员关系与授权规则一并清除**，不可恢复。
+ *
+ * 二次确认：必须传与租户名完全一致的 confirmName；不一致时服务端返回 4020912 且不做任何删除。
+ */
+export async function forceDeleteTenant(id: number, confirmName: string): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.delete<Envelope<null>>(
+      `/api/iam/tenant/force_delete/${id}?confirm_name=${encodeURIComponent(confirmName)}`,
+    ),
+  );
+}

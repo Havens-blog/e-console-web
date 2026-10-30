@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 /**
  * user store（2.7）契约测试。
  *
@@ -151,6 +151,8 @@ describe("user store（2.7 AC-1 + AC-3 + AC-4）", () => {
       name: "系统租户",
       code: "system",
       domain: "sys.example.com",
+      // 新增：租户状态经 normalizeTenantStatus 归一（1→active / 2→disable / 缺省→unknown）
+      status: "unknown",
     });
     expect(user.isAdmin).toBe(true);
     // currentTenantId 经 tenant store 委托（唯一归属）

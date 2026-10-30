@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 用户/会话 store —— 全局 3 个 store 之一（tech-design Architecture Store 清单）。
  *
  * 职责：拉取 `GET /api/iam/user/profile` 并归一为 ProfileData（user/permissions/tenants/
@@ -23,6 +23,7 @@ import { computed, ref } from "vue";
 import { eiamAxios, unwrapEnvelope } from "@/api/request/eiam";
 import { ApiError, type Tenant } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
+import { normalizeTenantStatus } from "@/api/tenants";
 import { useTenantStore } from "./tenant";
 
 // ---- profile 归一结果 ----
@@ -72,7 +73,7 @@ interface EiamProfileUser {
 interface EiamProfileData {
   user?: EiamProfileUser;
   permissions?: unknown;
-  tenants?: { id?: number; name?: string; code?: string; domain?: string }[];
+  tenants?: { id?: number; name?: string; code?: string; domain?: string; status?: number }[];
   current_tenant_id?: number;
   default_tenant_id?: number;
   is_admin?: boolean;
@@ -98,6 +99,7 @@ function mapTenants(v: unknown): Tenant[] {
     name: asString(t.name) ?? "",
     code: asString(t.code) ?? "",
     domain: asString(t.domain) ?? "",
+    status: normalizeTenantStatus(t.status),
   }));
 }
 

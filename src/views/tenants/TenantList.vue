@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 /**
  * 租户管理列表页（UF-6，task 4.4）。
  *
@@ -23,6 +23,7 @@ import { useTenantListStore } from "@/stores/tenantList";
 import { ApiError } from "@/api/types";
 import type { Tenant } from "@/api/types";
 import type { TenantGovernancePayload } from "@/api/tenants";
+import { forceDeleteTenant } from "@/api/tenants";
 import { contractText, formatContractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
 import StatusBadge from "@/components/StatusBadge.vue";
@@ -403,6 +404,31 @@ const deleteTarget = ref<{
 } | null>(null);
 const deleteLoading = ref(false);
 const deleteBlocked = ref<string>("");
+
+// ---- 强制删除（A3）：常规删除被"仍有从属资源"拦住时的破坏性出口 ----
+const forceMode = ref(false);
+const forceConfirmName = ref("");
+const forceError = ref("");
+const forceDeleting = ref(false);
+
+/** 强制删除：需输入与租户名完全一致的确认名（与后端 confirm_name 口径一致） */
+async function confirmForceDelete(): Promise<void> {
+  const target = deleteTarget.value;
+  if (!target) return;
+  forceDeleting.value = true;
+  forceError.value = "";
+  try {
+    await forceDeleteTenant(target.id, forceConfirmName.value);
+    deleteTarget.value = null;
+    forceMode.value = false;
+    forceConfirmName.value = "";
+    await store.fetch();
+  } catch (err) {
+    forceError.value = errorMessage(err);
+  } finally {
+    forceDeleting.value = false;
+  }
+}
 
 /**
  * 前置提示文案：仅当**已知**存在从属资源时返回提示（undefined = 统计不可用）。
@@ -1032,6 +1058,44 @@ const hasActiveFilters = computed(
           <p v-if="deleteBlocked" class="delete-blocked" role="alert">
             {{ deleteBlocked }}
           </p>
+          <!-- 系统管理员强制删除（A3）：常规删除被"仍有从属资源"拦住时的破坏性出口。
+               强制删除会连同成员关系与授权规则一并清除、不可恢复，故要求输入完整租户名确认；
+               最终权限仍由服务端把关（仅系统租户可调用）。 -->
+          <div class="force-delete">
+            <button
+              v-if="deleteBlocked || deleteResourceHint"
+              type="button"
+              class="btn btn--text btn--danger"
+              data-testid="force-delete-toggle"
+              @click="forceMode = true"
+            >
+              仍要强制删除…
+            </button>
+            <template v-if="forceMode">
+              <label class="field">
+                <span class="field__label">请输入完整租户名称以确认</span>
+                <input
+                  v-model="forceConfirmName"
+                  type="text"
+                  class="input"
+                  :placeholder="deleteTarget?.name"
+                  data-testid="force-confirm-name"
+                />
+              </label>
+              <p v-if="forceError" class="state-error" role="alert" data-testid="force-error">
+                {{ forceError }}
+              </p>
+              <button
+                type="button"
+                class="btn btn--danger"
+                :disabled="forceDeleting || forceConfirmName !== deleteTarget?.name"
+                data-testid="force-delete-confirm"
+                @click="confirmForceDelete"
+              >
+                {{ forceDeleting ? "强制删除中…" : "确认强制删除" }}
+              </button>
+            </template>
+          </div>
         </div>
         <div class="dialog__actions">
           <button

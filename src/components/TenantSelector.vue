@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 // 租户选择器共享组件（task 3.1）—— 主布局 header + 租户选择页（3.2）复用。
 //
 // 读取 user store 所属租户列表，勾选目标 → tenant store switchTenant
@@ -81,8 +81,9 @@ watch(
       <el-option
         v-for="t in tenants"
         :key="t.id"
-        :label="t.name || `租户 #${t.id}`"
+        :label="(t.name || `租户 #${t.id}`) + (t.status === 'disable' ? '（已停用）' : '')"
         :value="t.id"
+        :disabled="t.status === 'disable'"
       />
     </el-select>
     <span v-else-if="hasNone" class="tenant-selector-none" :title="noneLabel">
