@@ -410,6 +410,16 @@ function onTogglePanel(): void {
 .app-switcher {
   display: inline-flex;
   align-items: center;
+  /* 顶栏是 flex 容器，本组件默认会被压缩：390 视口下实测触发器被压到 51px、
+     其中标注只剩 13px，中文逐字竖排成 68px 高的竖条并撑破 32px 的按钮高度。
+     这里是「平台导航」入口，属于随时可达的导航操作，不参与压缩；
+     空间不足由 AppHeader 的窄屏规则（隐藏面包屑/租户选择器）让出。 */
+  flex-shrink: 0;
+}
+
+/* 标注固定单行：即便外部再把容器压窄，也只会整体溢出而不会逐字竖排。 */
+.app-switcher-label {
+  white-space: nowrap;
 }
 
 .app-switcher-trigger {
