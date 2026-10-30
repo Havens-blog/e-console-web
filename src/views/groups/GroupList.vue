@@ -338,7 +338,8 @@ function createdText(g: TenantGroup): string {
 <template>
   <section class="page-group-list" :aria-busy="store.loading">
     <header class="page-head">
-      <h2 class="page-title">用户组管理</h2>
+      <!-- 页面主标题用 h1（原为 h2，导致整页没有 h1）；.page-title 已显式定义 20px/600/margin:0，视觉不变 -->
+      <h1 class="page-title">用户组管理</h1>
       <button
         v-if="can(IAM_GROUP.ADD)"
         type="button"
