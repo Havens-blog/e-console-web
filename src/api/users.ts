@@ -477,3 +477,21 @@ export async function unbindUserIdentity(
     }),
   );
 }
+/**
+ * 批量删除用户（POST /api/iam/user/batch_delete）。
+ *
+ * 载荷键精确为 `{ids}`（对应 eiam `BatchDeleteReq{IDs []int64}`，json tag 为 `ids`）；
+ * 空数组照样上行（不在本地臆造拦截，由服务端判定）。
+ *
+ * 为什么补这个函数：后端已实现该端点并声明能力码 `iam:user:batch_delete`，
+ * 但 console 侧此前**既无 api 函数也无视图调用**（权限码零使用）——
+ * 管理员只能逐个删除，无法批量处理（"已实现却无视图调用"）。
+ *
+ * 返回 void：该端点不回传逐条结果，列表由调用方重拉；任一 id 不存在等业务拒绝
+ * 经 unwrapEnvelope 抛 ApiError，message 即 eiam msg 原文（不得改写）。
+ */
+export async function batchDeleteUsers(ids: number[]): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/user/batch_delete", { ids }),
+  );
+}

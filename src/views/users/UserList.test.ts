@@ -1,4 +1,4 @@
-// @vitest-environment happy-dom
+﻿// @vitest-environment happy-dom
 // UserList 按钮级权限门控集成测试（P0 三层裁剪之第 3 层，行为同原型）：
 // - readonly_audit（仅 iam:user:view）：新增用户/编辑/删除不渲染，行内渲染「查看」
 // - tenant_admin（view+add+edit，缺 delete）：新增/编辑渲染，删除不渲染
@@ -52,8 +52,11 @@ vi.mock("@/stores/userList", () => ({
   useUserListStore: () => fakeListStore,
 }));
 
+const batchDeleteUsersMock = vi.fn<(ids: number[]) => Promise<void>>();
+
 vi.mock("@/api/users", () => ({
   listRoles: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  batchDeleteUsers: (ids: number[]) => batchDeleteUsersMock(ids),
 }));
 
 // ---- 装配 ----
@@ -158,5 +161,114 @@ describe("UserList 按钮级权限门控（P0）", () => {
     expect(wrapper.find('[data-testid="edit-user"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="delete-user"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="view-user"]').exists()).toBe(false);
+  });
+});
+// 批量删除（feat-user-batch-delete）：后端 /user/batch_delete 与能力码
+// iam:user:batch_delete 均已存在，console 侧此前零使用（无 api 函数、无视图调用）。
+describe("UserList 批量删除（IAM_USER.BATCH_DELETE）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    batchDeleteUsersMock.mockResolvedValue(undefined);
+    fakeListStore.fetch.mockResolvedValue(undefined);
+  });
+
+  it("缺码：不渲染选择列 / 全选框 / 批量按钮", async () => {
+    const wrapper = await mountUserList({
+      isAdmin: false,
+      codes: [IAM_USER.VIEW, IAM_USER.DELETE],
+    });
+
+    expect(wrapper.find('[data-testid="user-batch-delete"]').exists()).toBe(
+      false,
+    );
+    expect(wrapper.find('[data-testid="user-select"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="user-select-all"]').exists()).toBe(false);
+  });
+
+  it("有码：渲染选择列与批量按钮，未选中时按钮禁用", async () => {
+    const wrapper = await mountUserList({
+      isAdmin: false,
+      codes: [IAM_USER.VIEW, IAM_USER.BATCH_DELETE],
+    });
+
+    const btn = wrapper.find('[data-testid="user-batch-delete"]');
+    expect(btn.exists()).toBe(true);
+    expect(btn.attributes("disabled")).toBeDefined();
+    expect(wrapper.find('[data-testid="user-select"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="user-select-all"]').exists()).toBe(true);
+  });
+
+  it("全选本页 → 选中所有可见行；取消全选 → 清空", async () => {
+    const wrapper = await mountUserList({
+      isAdmin: false,
+      codes: [IAM_USER.VIEW, IAM_USER.BATCH_DELETE],
+    });
+
+    const all = wrapper.find('[data-testid="user-select-all"]');
+    await all.setValue(true);
+    expect(wrapper.find('[data-testid="user-batch-delete"]').text()).toContain(
+      "已选 1 项",
+    );
+
+    await all.setValue(false);
+    expect(
+      wrapper.find('[data-testid="user-batch-delete"]').text(),
+    ).not.toContain("已选");
+  });
+
+  it("选中 → 批量删除 → 弹窗列名 → 确认 → batchDeleteUsers([1]) + 重拉 + 清空选中", async () => {
+    const wrapper = await mountUserList({
+      isAdmin: false,
+      codes: [IAM_USER.VIEW, IAM_USER.BATCH_DELETE],
+    });
+
+    await wrapper.find('[data-testid="user-select"]').setValue(true);
+    await wrapper.find('[data-testid="user-batch-delete"]').trigger("click");
+
+    const dialog = wrapper.find('[data-testid="user-batch-delete-dialog"]');
+    expect(dialog.exists()).toBe(true);
+    expect(dialog.text()).toContain("alice");
+
+    await wrapper
+      .find('[data-testid="user-batch-delete-confirm"]')
+      .trigger("click");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(batchDeleteUsersMock).toHaveBeenCalledWith([1]);
+    expect(fakeListStore.fetch).toHaveBeenCalled();
+    expect(
+      wrapper.find('[data-testid="user-batch-delete-dialog"]').exists(),
+    ).toBe(false);
+    expect(
+      wrapper.find('[data-testid="user-batch-delete"]').text(),
+    ).not.toContain("已选");
+  });
+
+  it("被拒：展示 eiam 文案原文、弹窗保持打开、不重拉、不清选中", async () => {
+    batchDeleteUsersMock.mockRejectedValue(new Error("未找到该用户信息"));
+    const wrapper = await mountUserList({
+      isAdmin: false,
+      codes: [IAM_USER.VIEW, IAM_USER.BATCH_DELETE],
+    });
+
+    await wrapper.find('[data-testid="user-select"]').setValue(true);
+    await wrapper.find('[data-testid="user-batch-delete"]').trigger("click");
+    // 挂载时 onMounted 已拉过一次列表，故比较"确认前后次数是否变化"而不是"是否被调用"
+    const callsBefore = fakeListStore.fetch.mock.calls.length;
+    await wrapper
+      .find('[data-testid="user-batch-delete-confirm"]')
+      .trigger("click");
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(
+      wrapper.find('[data-testid="user-batch-delete-dialog"]').exists(),
+    ).toBe(true);
+    expect(
+      wrapper.find('[data-testid="user-batch-delete-error"]').text(),
+    ).toContain("未找到该用户信息");
+    expect(fakeListStore.fetch.mock.calls.length).toBe(callsBefore);
+    expect(wrapper.find('[data-testid="user-batch-delete"]').text()).toContain(
+      "已选 1 项",
+    );
   });
 });

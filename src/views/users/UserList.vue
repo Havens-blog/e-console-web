@@ -21,11 +21,11 @@
  *
  * 删除确认（AC-5）：依赖删除被拒（E11）→ 弹窗列阻断计数、确认置灰（delete.blocked 契约复用）。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useUserListStore } from "@/stores/userList";
 import { useUserStore } from "@/stores/user";
-import { listRoles } from "@/api/users";
+import { batchDeleteUsers, listRoles } from "@/api/users";
 import { ApiError, type RoleRef } from "@/api/types";
 import { contractText } from "@/utils/copyContract";
 import CopyContractText from "@/components/CopyContractText.vue";
@@ -244,6 +244,89 @@ const deleteTarget = ref<{ id: number; username: string } | null>(null);
 const deleteLoading = ref(false);
 const deleteBlocked = ref<string>("");
 
+// ---- 批量删除（IAM_USER.BATCH_DELETE）----
+//
+// 范围口径：选中集只在**本页可见行**内维护（翻页/换页大小/筛选后清掉不可见项），
+// 避免"删除看不见的行"——与 feat-role-batch-delete 的既有契约一致。
+const selectedIds = ref<number[]>([]);
+/** 批量删除能力：缺码时不渲染选择列与批量按钮，也就不可能发起批量请求 */
+const canBatchDelete = computed<boolean>(() => can(IAM_USER.BATCH_DELETE));
+/** 本页可见行是否全部选中（用于表头全选框的勾选态） */
+const allVisibleSelected = computed<boolean>(
+  () =>
+    store.items.length > 0 &&
+    store.items.every((u) => selectedIds.value.includes(u.id)),
+);
+
+function toggleRow(id: number, checked: boolean): void {
+  const next = new Set(selectedIds.value);
+  if (checked) next.add(id);
+  else next.delete(id);
+  selectedIds.value = [...next];
+}
+
+function toggleAllVisible(checked: boolean): void {
+  const visible = new Set(store.items.map((u) => u.id));
+  if (checked) {
+    selectedIds.value = [...new Set([...selectedIds.value, ...visible])];
+  } else {
+    selectedIds.value = selectedIds.value.filter((id) => !visible.has(id));
+  }
+}
+
+/** 每次列表刷新后清理不可见选中项（翻页 / 改页大小 / 改筛选都会重拉） */
+watch(
+  () => store.items.map((u) => u.id).join(","),
+  () => {
+    const visible = new Set(store.items.map((u) => u.id));
+    selectedIds.value = selectedIds.value.filter((id) => visible.has(id));
+  },
+);
+
+const batchOpen = ref(false);
+const batchLoading = ref(false);
+const batchError = ref<string>("");
+/** 本次待删除 id / 用户名快照（弹窗打开时取，确认后按快照提交） */
+const batchIds = ref<number[]>([]);
+const batchNames = ref<string[]>([]);
+
+function openBatchDelete(): void {
+  if (selectedIds.value.length === 0) return;
+  batchIds.value = [...selectedIds.value];
+  batchNames.value = store.items
+    .filter((u) => batchIds.value.includes(u.id))
+    .map((u) => u.username);
+  batchError.value = "";
+  batchOpen.value = true;
+}
+
+function closeBatchDelete(): void {
+  batchOpen.value = false;
+  batchError.value = "";
+}
+
+/**
+ * 确认批量删除：成功 → 关弹窗 + 清空选中 + 重拉；
+ * 失败 → 归位 batchError（**不谎报成功**、不清选中，用户可重试）。
+ */
+async function confirmBatchDelete(): Promise<void> {
+  if (batchIds.value.length === 0) return;
+  batchLoading.value = true;
+  batchError.value = "";
+  try {
+    await batchDeleteUsers(batchIds.value);
+    batchOpen.value = false;
+    selectedIds.value = [];
+    batchIds.value = [];
+    batchNames.value = [];
+    await store.fetch();
+  } catch (err) {
+    batchError.value = errorMessage(err);
+  } finally {
+    batchLoading.value = false;
+  }
+}
+
 function openDelete(id: number, username: string): void {
   deleteTarget.value = { id, username };
   deleteBlocked.value = "";
@@ -365,6 +448,17 @@ useDialogA11y(deleteDialogRef, {
       <button type="button" class="btn btn--text" @click="resetFilters">
         重置
       </button>
+      <!-- 批量删除（IAM_USER.BATCH_DELETE）：缺码不渲染按钮与选择列，也就不可能发起批量请求 -->
+      <button
+        v-if="canBatchDelete"
+        type="button"
+        class="btn btn--danger"
+        data-testid="user-batch-delete"
+        :disabled="selectedIds.length === 0"
+        @click="openBatchDelete"
+      >
+        批量删除{{ selectedIds.length > 0 ? `（已选 ${selectedIds.length} 项）` : "" }}
+      </button>
     </div>
 
     <!-- 表格容器：错误 / 空 / 加载 三态都在容器内替换内容，
@@ -379,6 +473,15 @@ useDialogA11y(deleteDialogRef, {
       <table v-else-if="store.items.length > 0" class="data-table">
         <thead>
           <tr>
+            <th v-if="canBatchDelete" class="col-select">
+              <input
+                type="checkbox"
+                :checked="allVisibleSelected"
+                :aria-label="'全选本页用户'"
+                data-testid="user-select-all"
+                @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
+              />
+            </th>
             <th>用户名</th>
             <th>所属租户</th>
             <th>组织</th>
@@ -390,6 +493,16 @@ useDialogA11y(deleteDialogRef, {
         </thead>
         <tbody>
           <tr v-for="u in store.items" :key="u.id">
+            <td v-if="canBatchDelete" class="col-select">
+              <input
+                type="checkbox"
+                :checked="selectedIds.includes(u.id)"
+                :aria-label="`选择用户 ${u.username}`"
+                data-testid="user-select"
+                :data-user-id="u.id"
+                @change="toggleRow(u.id, ($event.target as HTMLInputElement).checked)"
+              />
+            </td>
             <td>{{ u.username }}</td>
             <td>{{ currentTenantName }}</td>
             <td class="muted">—</td>
@@ -717,6 +830,72 @@ useDialogA11y(deleteDialogRef, {
             @click="confirmDelete"
           >
             {{ deleteLoading ? "删除中…" : "确认删除" }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量删除二次确认（IAM_USER.BATCH_DELETE）：逐条列出将删除的用户名，
+         避免"删除看不见的行"（范围 = 当前选中快照，弹窗打开后并发变化不影响本次提交） -->
+    <div
+      v-if="batchOpen"
+      class="dialog-overlay"
+      data-testid="user-batch-delete-dialog"
+    >
+      <div
+        class="dialog dialog--sm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-describedby="batch-delete-user-desc"
+        aria-label="批量删除用户"
+      >
+        <header class="dialog__head">
+          <h3>批量删除用户</h3>
+          <button
+            type="button"
+            class="btn btn--text"
+            aria-label="关闭"
+            @click="closeBatchDelete"
+          >
+            ✕
+          </button>
+        </header>
+        <div class="dialog__body">
+          <p id="batch-delete-user-desc">
+            确认删除以下 <strong>{{ batchIds.length }}</strong> 个用户？此操作不可撤销。
+          </p>
+          <ul class="muted">
+            <li v-for="name in batchNames" :key="name" class="mono">
+              {{ name }}
+            </li>
+          </ul>
+          <p
+            v-if="batchError"
+            class="delete-blocked"
+            role="alert"
+            data-testid="user-batch-delete-error"
+          >
+            {{ batchError }}
+          </p>
+        </div>
+        <div class="dialog__actions">
+          <button
+            type="button"
+            class="btn btn--ghost"
+            data-dialog-cancel
+            data-testid="user-batch-delete-cancel"
+            @click="closeBatchDelete"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="btn btn--danger"
+            :disabled="batchLoading"
+            data-testid="user-batch-delete-confirm"
+            @click="confirmBatchDelete"
+          >
+            {{ batchLoading ? "删除中…" : "确认删除" }}
           </button>
         </div>
       </div>
