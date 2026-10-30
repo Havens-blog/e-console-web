@@ -305,3 +305,25 @@ export async function listJoinRequests(
   );
   return toJoinRequestPage(data);
 }
+
+/**
+ * 处理加入申请（POST /api/iam/invitation/requests/handle）。
+ *
+ * 载荷键精确为 `{id, approve}`（对应 eiam `HandleJoinRequestReq{ID,Approve}`；
+ * approve=true 通过、false 拒绝）。
+ *
+ * 为什么补这个函数：后端已实现该端点（权限 iam:invitation:handle_request），
+ * 但前端此前**既无 api 函数也无视图调用** —— 权限码在 console 侧零使用，
+ * 管理员看不到待审申请的处理入口（"已实现却无视图调用"）。
+ *
+ * 返回 void：该端点不回传逐条结果，列表由调用方重拉；被拒（无权限 / 申请已被处理 /
+ * 无权处理该申请）经 unwrapEnvelope 抛 ApiError，message 即 eiam msg 原文（不得改写）。
+ */
+export async function handleJoinRequest(id: number, approve: boolean): Promise<void> {
+  await unwrapEnvelope<null>(
+    eiamAxios.post<Envelope<null>>("/api/iam/invitation/requests/handle", {
+      id,
+      approve,
+    }),
+  );
+}

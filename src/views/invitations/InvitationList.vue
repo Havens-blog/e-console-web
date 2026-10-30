@@ -38,6 +38,7 @@ import { computed, onMounted, ref } from "vue";
 import {
   batchRevokeInvitations,
   createInvitation,
+  handleJoinRequest,
   listInvitations,
   listJoinRequests,
   revokeInvitation,
@@ -60,6 +61,41 @@ const canViewRequests = computed<boolean>(() =>
 
 /** 批量撤回能力（无码时不渲染选择列与批量按钮） */
 const canBatchRevoke = computed<boolean>(() => can(IAM_INVITATION.BATCH_DELETE));
+
+/**
+ * 处理加入申请的能力（iam:invitation:handle_request）。
+ *
+ * 为什么在此门控：后端已实现 /requests/handle 且声明了该能力码，但 console 侧此前
+ * 既无 api 函数也无视图调用 —— 管理员看不到"通过/拒绝"入口。缺码时整列不渲染，也就不发请求。
+ */
+const canHandleRequest = computed<boolean>(() =>
+  can(IAM_INVITATION.HANDLE_REQUEST),
+);
+
+/** 正在处理的申请 id：非空即禁用该行按钮，杜绝重复提交（后端会拒绝重复处理） */
+const handlingId = ref<number | null>(null);
+/** 处理失败文案（eiam msg 原文；不吞掉可处置信息） */
+const handleError = ref<string>("");
+
+/**
+ * 处理加入申请：approve=true 通过、false 拒绝。
+ *
+ * 成功后重拉列表（后端不回传逐条结果，且列表里该项应消失）；
+ * 失败归位 handleError，**不谎报成功**、不清列表。
+ */
+async function handleRequest(r: JoinRequest, approve: boolean): Promise<void> {
+  if (handlingId.value !== null) return;
+  handlingId.value = r.id;
+  handleError.value = "";
+  try {
+    await handleJoinRequest(r.id, approve);
+    await loadRequests();
+  } catch (err) {
+    handleError.value = errorMessage(err);
+  } finally {
+    handlingId.value = null;
+  }
+}
 
 // ---- 视图页签 ----
 type TabKey = "list" | "requests";
@@ -644,6 +680,8 @@ function applicantText(r: JoinRequest): string {
             <th>邀请码</th>
             <th>角色</th>
             <th>申请时间</th>
+            <!-- 处理能力（IAM_INVITATION.HANDLE_REQUEST）：缺码时整列不渲染，也不会发请求 -->
+            <th v-if="canHandleRequest">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -660,9 +698,39 @@ function applicantText(r: JoinRequest): string {
             <td class="mono">{{ r.invitationCode || "—" }}</td>
             <td class="muted">{{ rolesText(r.roleCodes) }}</td>
             <td class="muted">{{ formatEpochMs(r.ctime) }}</td>
+            <td v-if="canHandleRequest">
+              <button
+                type="button"
+                class="btn btn--text"
+                data-testid="join-request-approve"
+                :disabled="handlingId === r.id"
+                @click="handleRequest(r, true)"
+              >
+                通过
+              </button>
+              <button
+                type="button"
+                class="btn btn--text btn--danger"
+                data-testid="join-request-reject"
+                :disabled="handlingId === r.id"
+                @click="handleRequest(r, false)"
+              >
+                拒绝
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
+
+      <!-- 处理失败：展示 eiam 业务文案原文（可处置信息，不吞掉） -->
+      <p
+        v-if="handleError"
+        class="state-error"
+        role="alert"
+        data-testid="join-request-handle-error"
+      >
+        {{ handleError }}
+      </p>
 
       <div v-else-if="reqLoading" class="skeleton" aria-hidden="true">
         <div v-for="i in 5" :key="i" class="skeleton__row" />

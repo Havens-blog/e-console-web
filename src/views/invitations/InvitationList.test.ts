@@ -11,7 +11,10 @@
  *   合法载荷（roleCodes 空数组）、成功后关弹窗并重拉、被拒原文、提交中禁用
  * - 撤回：行内按钮 → 二次确认（未确认不发请求）→ DELETE 调用 → 重拉、被拒原文、取消、
  *   撤回中禁用
- * - 页签切换：邀请列表 ↔ 加入申请（各自独立拉取）、申请列表只读（行内无操作按钮）、
+ * - 页签切换：邀请列表 ↔ 加入申请（各自独立拉取）、
+ *   申请处理（feat-invitation-handle-request）：有 HANDLE_REQUEST 码 → 行内「通过/拒绝」；
+ *   缺码 → 行内无按钮；通过/拒绝分别调用 handleJoinRequest(id, true/false) 后重拉；
+ *   被拒展示 eiam 文案原文且不谎报成功、处理中禁用该行按钮、
  *   申请空态「暂无加入申请」
  * - 权限裁剪：无 ADD 不渲染创建、无 DELETE 不渲染撤回；码级粒度
  * - 角色多选（feat-invitation-complete）：候选来自 listRolesPage 翻页拉齐（100/页、≤20 页）、
@@ -48,6 +51,9 @@ const listJoinRequestsMock = vi.fn<
     Page<JoinRequest>
   >
 >();
+const handleJoinRequestMock = vi.fn<
+  (id: number, approve: boolean) => Promise<void>
+>();
 
 vi.mock("@/api/invitations", () => ({
   listInvitations: (q: { offset: number; limit: number; keyword: string }) =>
@@ -58,6 +64,8 @@ vi.mock("@/api/invitations", () => ({
     batchRevokeInvitationsMock(codes),
   listJoinRequests: (q: { offset: number; limit: number; keyword: string }) =>
     listJoinRequestsMock(q),
+  handleJoinRequest: (id: number, approve: boolean) =>
+    handleJoinRequestMock(id, approve),
 }));
 
 // ---- 角色候选 mock（角色多选复用 api/roles，本页不重复实现角色列表）----
@@ -569,14 +577,89 @@ describe("InvitationList：页签切换与加入申请（只读）", () => {
     expect(rows[1]!.text()).toContain("eve");
   });
 
-  it("加入申请列表只读：行内无任何操作按钮", async () => {
+  it("申请处理（feat-invitation-handle-request）：有 HANDLE_REQUEST 码 → 行内渲染「通过/拒绝」", async () => {
     const wrapper = await mountPage();
+    await wrapper.find('[data-testid="invitation-tab-requests"]').trigger("click");
+    await flushPromises();
+
+    const rows = requestRows(wrapper);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.findAll("button")).toHaveLength(2);
+      expect(row.find('[data-testid="join-request-approve"]').exists()).toBe(
+        true,
+      );
+      expect(row.find('[data-testid="join-request-reject"]').exists()).toBe(
+        true,
+      );
+    }
+  });
+
+  it("申请处理：缺 HANDLE_REQUEST 码 → 行内无操作按钮（不渲染入口、不发请求）", async () => {
+    const without = IAM_ALL_CODES.filter(
+      (c) => c !== IAM_INVITATION.HANDLE_REQUEST,
+    );
+    const wrapper = await mountPage(without);
     await wrapper.find('[data-testid="invitation-tab-requests"]').trigger("click");
     await flushPromises();
 
     for (const row of requestRows(wrapper)) {
       expect(row.findAll("button")).toHaveLength(0);
     }
+    expect(handleJoinRequestMock).not.toHaveBeenCalled();
+  });
+
+  it("申请处理：点「通过」→ handleJoinRequest(id, true) 并按处理结果重拉列表", async () => {
+    handleJoinRequestMock.mockResolvedValue(undefined);
+    const wrapper = await mountPage();
+    await wrapper.find('[data-testid="invitation-tab-requests"]').trigger("click");
+    await flushPromises();
+    const callsBefore = listJoinRequestsMock.mock.calls.length;
+
+    await requestRows(wrapper)[0]!
+      .find('[data-testid="join-request-approve"]')
+      .trigger("click");
+    await flushPromises();
+
+    expect(handleJoinRequestMock).toHaveBeenCalledWith(1, true);
+    expect(listJoinRequestsMock.mock.calls.length).toBe(callsBefore + 1);
+    expect(wrapper.find('[data-testid="join-request-handle-error"]').exists()).toBe(
+      false,
+    );
+  });
+
+  it("申请处理：点「拒绝」→ handleJoinRequest(id, false)", async () => {
+    handleJoinRequestMock.mockResolvedValue(undefined);
+    const wrapper = await mountPage();
+    await wrapper.find('[data-testid="invitation-tab-requests"]').trigger("click");
+    await flushPromises();
+
+    await requestRows(wrapper)[0]!
+      .find('[data-testid="join-request-reject"]')
+      .trigger("click");
+    await flushPromises();
+
+    expect(handleJoinRequestMock).toHaveBeenCalledWith(1, false);
+  });
+
+  it("申请处理被拒：展示 eiam 文案原文、不重拉、不谎报成功", async () => {
+    handleJoinRequestMock.mockRejectedValue(new Error("申请已处理，请勿重复操作"));
+    const wrapper = await mountPage();
+    await wrapper.find('[data-testid="invitation-tab-requests"]').trigger("click");
+    await flushPromises();
+    const callsBefore = listJoinRequestsMock.mock.calls.length;
+
+    await requestRows(wrapper)[0]!
+      .find('[data-testid="join-request-approve"]')
+      .trigger("click");
+    await flushPromises();
+
+    const errEl = wrapper.find('[data-testid="join-request-handle-error"]');
+    expect(errEl.exists()).toBe(true);
+    expect(errEl.text()).toContain("申请已处理，请勿重复操作");
+    // 失败不重拉（避免用"列表没变"掩盖失败），且行仍在
+    expect(listJoinRequestsMock.mock.calls.length).toBe(callsBefore);
+    expect(requestRows(wrapper)).toHaveLength(1);
   });
 
   it("申请空态：无申请显示「暂无加入申请」", async () => {
