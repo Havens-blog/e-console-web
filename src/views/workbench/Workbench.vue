@@ -544,6 +544,11 @@ onMounted(() => {
   flex-direction: column;
   gap: 24px;
   padding: 24px;
+  /* 本仓没有全局 box-sizing:border-box 重置，默认 content-box 下
+     `width:100%` 只是内容宽度，左右各 24px 的内边距会额外撑出 48px：
+     实测窄屏（390/768）该容器右边距视口 16px、超出部分被
+     `.main-area{overflow-x:hidden}` 裁掉且无法滚动抵达，右侧内容看不全。 */
+  box-sizing: border-box;
 }
 
 // ---- 欢迎横幅（Linear hero：半透明表面 + 蓝紫微妙渐变）----
@@ -923,6 +928,28 @@ onMounted(() => {
     position: absolute;
     top: 24px;
     right: 24px;
+  }
+}
+
+/* 手机窄屏（≤560）：公告标题改为换行显示。
+   公告行是「标签 + 标题 + 日期」三件套的 flex 行，标题 `flex:1` 且强制单行省略；
+   390 视口下标题只剩 161px（全文 473px），即 66% 的内容被省略号吃掉，
+   而标题没有 title 属性也没有其它展开方式 —— 手机上公告基本读不到。
+   这里让该行允许换行、标题恢复常规折行，日期靠右；桌面宽度不受影响。 */
+@media (max-width: 560px) {
+  .notice-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .notice-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .notice-date {
+    margin-left: auto;
   }
 }
 </style>
