@@ -100,6 +100,20 @@ const authDraft = ref<AuthFilterDraft>(emptyAuthDraft());
 const authFilter = ref<AuthFilterDraft>(emptyAuthDraft());
 
 const authLogs = ref<AuthLog[]>([]);
+/**
+ * 是否存在生效中的认证筛选（空态区分「筛选无结果」与「本来无数据」用）。
+ * 与其他列表页（用户/角色/策略/授权/租户/用户组）保持一致的模式：
+ * 筛到 0 条时提示「没有匹配…」并给一键清除，而不是笼统的「暂无…」——
+ * 后者会让运维以为是「本来就没有审计记录」，从而漏掉「自己筛错了」这种更常见的情况。
+ */
+const hasActiveAuthFilters = computed(
+  () =>
+    authFilter.value.username !== "" ||
+    authFilter.value.authType !== "" ||
+    authFilter.value.status !== "" ||
+    authFilter.value.start !== "" ||
+    authFilter.value.end !== "",
+);
 const authTotal = ref<number>(0);
 const authPage = ref<number>(1);
 const authPageSize = ref<number>(20);
@@ -202,6 +216,15 @@ const opDraft = ref<OperationFilterDraft>(emptyOperationDraft());
 const opFilter = ref<OperationFilterDraft>(emptyOperationDraft());
 
 const opLogs = ref<OperationLog[]>([]);
+/** 是否存在生效中的操作审计筛选（同 hasActiveAuthFilters，供空态区分用） */
+const hasActiveOpFilters = computed(
+  () =>
+    opFilter.value.operatorName !== "" ||
+    opFilter.value.service !== "" ||
+    opFilter.value.module !== "" ||
+    opFilter.value.action !== "" ||
+    opFilter.value.status !== "",
+);
 const opTotal = ref<number>(0);
 const opPage = ref<number>(1);
 const opPageSize = ref<number>(20);
@@ -478,7 +501,18 @@ onMounted(async () => {
           class="state-empty"
           data-testid="audit-auth-empty"
         >
-          <p class="state-empty__text">暂无认证审计日志</p>
+          <template v-if="hasActiveAuthFilters">
+            <p class="state-empty__text">没有匹配的认证审计日志，试试更改筛选条件</p>
+            <button
+              type="button"
+              class="btn btn--text"
+              data-testid="audit-auth-clear-filters"
+              @click="resetAuthFilters"
+            >
+              清除筛选
+            </button>
+          </template>
+          <p v-else class="state-empty__text">暂无认证审计日志</p>
         </div>
       </div>
 
@@ -656,7 +690,18 @@ onMounted(async () => {
           class="state-empty"
           data-testid="audit-operation-empty"
         >
-          <p class="state-empty__text">暂无操作审计日志</p>
+          <template v-if="hasActiveOpFilters">
+            <p class="state-empty__text">没有匹配的操作审计日志，试试更改筛选条件</p>
+            <button
+              type="button"
+              class="btn btn--text"
+              data-testid="audit-operation-clear-filters"
+              @click="resetOperationFilters"
+            >
+              清除筛选
+            </button>
+          </template>
+          <p v-else class="state-empty__text">暂无操作审计日志</p>
         </div>
       </div>
 
