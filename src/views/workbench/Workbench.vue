@@ -963,5 +963,13 @@ onMounted(() => {
   .notice-date {
     margin-left: auto;
   }
+
+  /* 应用卡片：390px 下两列时每张仅 139px，卡内 grid 是 "icon label"/"icon desc" 两列，
+     减掉 padding 40 + 图标 40 + 列间距 14 后文字列只剩 45px，
+     「多云资源管理」被折成 3 行（实测 desc 43px × 36px）。窄屏改单列，
+     卡片回到 ~278px、文字列约 164px，一行放下。（iter125） */
+  .workbench-app-cards {
+    grid-template-columns: repeat(1, 1fr);
+  }
 }
 </style>
