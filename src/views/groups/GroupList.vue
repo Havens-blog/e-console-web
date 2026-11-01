@@ -46,6 +46,7 @@ import { formatEpochMs } from "@/views/tenants/timestamp";
 import GroupMembersDrawer from "./GroupMembersDrawer.vue";
 import GroupPoliciesDialog from "./GroupPoliciesDialog.vue";
 import GroupRolesDialog from "./GroupRolesDialog.vue";
+import { useUrlKeyword } from "@/composables/useUrlKeyword";
 
 const store = useGroupListStore();
 
@@ -58,6 +59,9 @@ const { can } = useCan();
 // 因此若把关键词发给服务端，输入会被静默忽略（"假搜索"）。这里改为对**当前页已加载数据**
 // 做即时筛选，并在界面上如实标注范围（placeholder / 提示文案），避免误导。
 const keywordInput = ref("");
+
+// 关键词筛选同步 URL（iter136）：此前 URL 不携带条件，「进详情/切走→返回」后筛选被清空。
+useUrlKeyword(keywordInput);
 const filterText = ref("");
 
 function applySearch(): void {
@@ -99,6 +103,10 @@ async function reload(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 从 ?search= 恢复的关键词要先落到 store，再取数（否则页面显示的筛选与数据不一致）
+  if (keywordInput.value) {
+    filterText.value = keywordInput.value;
+  }
   await store.fetch();
 });
 

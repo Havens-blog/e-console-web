@@ -38,8 +38,11 @@ vi.mock("@/router", () => ({
 }));
 
 // ---- vue-router 替身：页面「编辑」跳转用 useRouter().push，测试不装真路由 ----
+// iter136：页面新增 useUrlKeyword（关键词同步 URL），它同时用 useRoute/useRouter，
+// 故替身需一并提供 useRoute + replace，否则会因 mock 面不全而抛错。
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRoute: () => ({ path: "/console/roles", query: {} }),
 }));
 
 // ---- api 层 mock（本文件不触网、不删除真实角色）----

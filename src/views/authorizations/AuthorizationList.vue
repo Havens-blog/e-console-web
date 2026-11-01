@@ -30,6 +30,7 @@ import CopyContractText from "@/components/CopyContractText.vue";
 import { useCan } from "@/composables/useCan";
 import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_POLICY, IAM_ROLE } from "@/config/permission-codes";
+import { useUrlKeyword } from "@/composables/useUrlKeyword";
 
 const store = useAuthorizationListStore();
 
@@ -52,6 +53,9 @@ function canRevoke(action: string): boolean {
 
 // ---- 搜索（切过滤重置 page=1，E7）----
 const keywordInput = ref("");
+
+// 关键词筛选同步 URL（iter136）：此前 URL 不携带条件，「进详情/切走→返回」后筛选被清空。
+useUrlKeyword(keywordInput);
 
 function applySearch(): void {
   store.setKeyword(keywordInput.value.trim());
@@ -89,6 +93,10 @@ async function reload(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 从 ?search= 恢复的关键词要先落到 store，再取数（否则页面显示的筛选与数据不一致）
+  if (keywordInput.value) {
+    store.setKeyword(keywordInput.value);
+  }
   await reload();
 });
 
