@@ -22,7 +22,7 @@
  * 删除确认（AC-5）：依赖删除被拒（E11）→ 弹窗列阻断计数、确认置灰（delete.blocked 契约复用）。
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useUserListStore } from "@/stores/userList";
 import { useUserStore } from "@/stores/user";
 import { batchDeleteUsers, listRoles } from "@/api/users";
@@ -35,6 +35,7 @@ import { useDialogA11y } from "@/composables/useDialogA11y";
 import { IAM_ROLE, IAM_USER } from "@/config/permission-codes";
 
 const router = useRouter();
+const route = useRoute();
 const store = useUserListStore();
 const userStore = useUserStore();
 
@@ -62,7 +63,9 @@ const keywordInput = ref("");
 const roleFilterInput = ref("");
 
 function applySearch(): void {
-  store.setKeyword(keywordInput.value.trim());
+  const kw = keywordInput.value.trim();
+  store.setKeyword(kw);
+  syncSearchToUrl(kw);
   void store.fetch();
 }
 
@@ -72,11 +75,29 @@ function applyRoleFilter(code: string): void {
   void store.fetch();
 }
 
+/**
+ * 把关键词同步到 URL query（iter135）。
+ * 这样「进详情→返回」时 onMounted 能从 route.query 恢复筛选，刷新页面也不丢。
+ * 用 replace 而非 push：避免每次搜索都往历史栈里塞一条，返回键仍一步回到详情前的列表。
+ */
+function syncSearchToUrl(keyword: string): void {
+  const next = { ...route.query } as Record<string, string>;
+  if (keyword) {
+    next.search = keyword;
+  } else {
+    delete next.search;
+  }
+  const cur = typeof route.query.search === "string" ? route.query.search : "";
+  if (cur === keyword) return;
+  void router.replace({ path: route.path, query: next });
+}
+
 function resetFilters(): void {
   keywordInput.value = "";
   roleFilterInput.value = "";
   store.setKeyword("");
   store.setRoleFilter("");
+  syncSearchToUrl("");
   void store.fetch();
 }
 
@@ -105,6 +126,14 @@ async function reload(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 「进详情→返回」后恢复筛选（iter135）：此前筛选只存在组件内 ref 与 store 里，
+  // URL 不带任何条件，用户点「编辑」进 /users/:id 再返回时筛选被清空、必须重新输入。
+  // CAM 的证书台账早已把筛选同步到 route.query 并把这件事写进了注释，console 缺失。
+  const q = typeof route.query.search === "string" ? route.query.search : "";
+  if (q) {
+    keywordInput.value = q;
+    store.setKeyword(q);
+  }
   await Promise.all([loadRoleOptions(), store.fetch()]);
 });
 
