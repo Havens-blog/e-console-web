@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 角色详情/绑定子页（UF-8，task 5.1）—— 路由 /roles/:id。
  *
@@ -599,13 +599,28 @@ useErrorReveal(saveError, saveErrorRef);
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* 窄屏（iter148 实测 390px）：容器 278px 且 nowrap，加上 .detail-title 有 flex:1，
+     标题「租户管理员」被挤到 80px → 折 2 行。允许换行。 */
+  flex-wrap: wrap;
+
+  button {
+    /* 按钮不参与收缩：换行后仍保持单行文案 */
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
 }
 
 .detail-title {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
-  flex: 1;
+  /* 原为 flex:1（= 1 1 0%）。窄屏（iter148 实测 390px）下三个子元素
+     「返回 118 + 标题 + 保存 56 + 两个 12px gap」刚好铺满 278px，不触发换行，
+     标题只能分到 flex-grow 的那一份 80px（5 字 @20px 需 ~100px）→ 折 2 行。
+     改为按内容取宽并禁止缩放：标题拿到 ~100px 后总宽超出 → flex-wrap 自动把按钮换行。 */
+  flex: 0 0 auto;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .input {
@@ -791,11 +806,26 @@ useErrorReveal(saveError, saveErrorRef);
   display: flex;
   gap: 8px;
   align-items: center;
+  /* 窄屏（iter148 实测 390px）：容器 236px 且 nowrap，「搜索」按钮被挤到 36px → 折 2 行。
+     允许换行，并让按钮不参与收缩。 */
+  flex-wrap: wrap;
+
+  button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
 }
 
 .detail-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  /* 同上：窄屏允许换行，按钮不被压缩 */
+  flex-wrap: wrap;
+
+  button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
 }
 </style>

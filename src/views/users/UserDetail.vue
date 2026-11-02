@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 用户详情/编辑子页（UF-4，task 4.2）—— 路由 /users/:id。
  *
@@ -635,12 +635,25 @@ useErrorReveal(saveError, saveErrorRef);
   display: flex;
   align-items: center;
   gap: 12px;
+  /* 窄屏（iter148 实测 390px）：容器 278px 且 nowrap，加上 .detail-title 有 flex:1，
+     把两侧按钮挤到「← 返回用户列表」30px→7 行、「重置密码」44px→4 行。
+     允许换行，并让按钮不参与收缩。 */
+  flex-wrap: wrap;
 
   .detail-title {
     margin: 0;
     font-size: 18px;
     font-weight: 600;
     flex: 1;
+    /* 标题至少保留可读宽度，换行后仍保持单行 */
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  /* 按钮不参与收缩：换行后仍保持单行文案 */
+  button {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 }
 
