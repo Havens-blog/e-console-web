@@ -233,6 +233,12 @@
 }
 
 // 表格
+:root {
+  // 固定列底色默认值；容器（如 .cert-table-card）可覆盖并靠继承生效。
+  // 注意不能声明在 .el-table 上，否则会覆盖祖先的覆盖值。
+  --table-fixed-bg: var(--bg-elevated);
+}
+
 .el-table {
   --el-table-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
@@ -256,6 +262,34 @@
   
   .el-table__row:hover > td.el-table__cell {
     background-color: var(--table-row-hover);
+  }
+
+  // 斑马纹行的底色规则比普通 hover 更具体，hover 会被吃掉；这里显式提权补回反馈
+  &.el-table--striped .el-table__body tr.el-table__row--striped:hover > td.el-table__cell {
+    background-color: var(--table-row-hover);
+  }
+
+  // 固定列必须不透明：斑马纹/hover 行的底色是半透明叠加，横滑时下层文字会透出与固定列内容叠字。
+  // 做法：cell 给实色底（token 可覆盖），各状态用 background-image 叠 tint（image 在 color 之上，
+  // 合成后仍不透明），这样不必手算合成色，暗色/浅色主题都成立。
+  .el-table__cell.el-table-fixed-column--left,
+  .el-table__cell.el-table-fixed-column--right {
+    background-color: var(--table-fixed-bg) !important;
+  }
+
+  th.el-table-fixed-column--left,
+  th.el-table-fixed-column--right {
+    background-image: linear-gradient(var(--el-table-header-bg-color), var(--el-table-header-bg-color)) !important;
+  }
+
+  .el-table__body tr.el-table__row--striped > td.el-table-fixed-column--left,
+  .el-table__body tr.el-table__row--striped > td.el-table-fixed-column--right {
+    background-image: linear-gradient(var(--el-fill-color-lighter), var(--el-fill-color-lighter)) !important;
+  }
+
+  .el-table__body tr:hover > td.el-table-fixed-column--left,
+  .el-table__body tr:hover > td.el-table-fixed-column--right {
+    background-image: linear-gradient(var(--table-row-hover), var(--table-row-hover)) !important;
   }
 }
 
@@ -359,6 +393,15 @@
 
 // 分页
 .el-pagination {
+  // 窄屏可用性：默认 nowrap 且挂 justify-content:flex-end 的容器里，整组控件会向左溢出到容器外
+  // （审计日志页 360 下 left=-344，控件不可达），而 scrollWidth 不计负向溢出，靠「页面无横滚」发现不了。
+  flex-wrap: wrap;
+  row-gap: 8px;
+  // 极窄时换行后仍可能超出容器：让控件条自身可横向滚动，保证所有控件可达而不是被裁掉。
+  // 契约：容器内不要再放 teleported:false 的浮层，否则会被这里的 overflow 裁切。
+  max-width: 100%;
+  overflow-x: auto;
+
   --el-pagination-bg-color: transparent;
   --el-pagination-text-color: var(--text-secondary);
   --el-pagination-button-bg-color: var(--bg-surface);
@@ -429,6 +472,13 @@
 
   .el-pagination__total {
     color: var(--text-secondary);
+  }
+}
+
+@media (max-width: 768px) {
+  .el-pagination {
+    // safe center：内容仍溢出时回退到 start，避免左侧控件既不可见也滚不到
+    justify-content: safe center;
   }
 }
 
@@ -789,4 +839,16 @@
 // 浅色主题消息提示
 :root.light .el-message {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+
+// 以下表格容器底色是 --bg-surface（比玻璃卡更亮），固定列若沿用默认 --bg-elevated 会出现深色竖带
+.cert-table-card,
+.table-wrapper,
+.budget-table-card,
+.allocation-table-card,
+.anomaly-page,
+.domain-table-wrapper,
+.record-table-wrapper {
+  --table-fixed-bg: var(--bg-surface);
 }

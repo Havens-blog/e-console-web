@@ -9,14 +9,14 @@
       "sourcePath": "src/assets/styles/theme-variables.scss",
       "sourceCommit": "d28829e0d119666ae0ca9c4d4129e9d29e83dc0e",
       "sourceCommitDate": "2026-09-20",
-      "sha256": "248c4f993dfe01e8142a7aef4125261de5115e16a33e8b04799aae5b936b35c3"
+      "sha256": "7c9a007dbf563859dcd577784d1382bca91ed662514066a09bc7c96563d337fc"
     },
     {
       "path": "src/assets/styles/element-theme.scss",
       "sourcePath": "src/assets/styles/element-theme.scss",
       "sourceCommit": "08904e9d0a21f4239f06f6e46e00388835155f2e",
       "sourceCommitDate": "2026-09-21",
-      "sha256": "dcac0148759c1b0d4985ac455dc13d1cc3909f92e217e8f68cbb90caf202f762"
+      "sha256": "0528bc6a878013eebf222a1cde35eb518cba84b7b1242c175ae5a6962920dee4"
     },
     {
       "path": "src/api/request/eiam.ts",
