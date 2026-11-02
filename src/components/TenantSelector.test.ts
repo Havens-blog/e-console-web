@@ -19,6 +19,7 @@ import TenantSelector from "./TenantSelector.vue";
 import { useUserStore } from "@/stores/user";
 import { useTenantStore } from "@/stores/tenant";
 import { COPY_CONTRACT } from "@/utils/copyContract";
+import { eiamAxios } from "@/api/request/eiam";
 
 // ElSelect stub：捕获 model-value/loading/disabled props + 派发 change 事件
 const ElSelectStub = defineComponent({
@@ -236,4 +237,22 @@ describe("TenantSelector 切换失败 → ElMessage.error 契约文案", () => {
     expect(ElMessage.error).toHaveBeenCalledWith("切换租户失败");
     wrapper.unmount();
   });
+});
+
+// 本文件会走**真实** tenant store 的 switchTenant（组件→store 调用链断言），它会用 eiamAxios
+// 发 POST /api/iam/tenant/switch；happy-dom 的默认 base 是 http://localhost:3000，
+// 于是每次运行都在做一次**真实网络尝试**并在输出里留下 ECONNREFUSED 噪声（用例本身通过，属误导性噪音）。
+// 这里用内存 adapter 短路网络：只验证调用链，不依赖真实后端。
+beforeEach(() => {
+  eiamAxios.defaults.adapter = async (config) => ({
+    data: { code: 0, msg: "ok", data: null },
+    status: 200,
+    statusText: "OK",
+    headers: {},
+    config,
+  });
+});
+
+afterEach(() => {
+  eiamAxios.defaults.adapter = undefined;
 });
