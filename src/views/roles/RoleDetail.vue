@@ -330,6 +330,13 @@ useErrorReveal(saveError, saveErrorRef);
       </button>
     </header>
 
+  <!-- 只读提示（iter184）：无编辑权限时按钮被 v-if 隐藏、字段被 :disabled 禁用，
+       原先没有任何说明 —— 用户看到灰字段与消失的按钮，不知道是「没权限」还是「页面坏了」。
+       这里补一条提示把两者区分开。 -->
+  <p v-if="!canEditRole" class="readonly-hint" role="status">
+    你没有编辑该角色的权限，以下信息为只读。
+  </p>
+
     <!-- 读屏播报：详情页初次加载与保存中经此常驻区域播报（视觉不可见）。
          原先只有 aria-busy 与 aria-hidden 骨架，读屏在加载期间完全静默。 -->
     <p class="sr-only" role="status" aria-live="polite">
@@ -699,6 +706,17 @@ useErrorReveal(saveError, saveErrorRef);
 }
 
 // 错误态：与「用户详情」统一为红色告警条（原先只有一行居中小灰字，夹在表单中间几乎看不见）
+  /* 只读提示（iter184）：与 .state-error 视觉区分 —— 这是「信息」不是「错误」 */
+  .readonly-hint {
+    margin: 0 0 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+    color: var(--text-secondary);
+    border-left: 3px solid var(--text-tertiary);
+  }
+
 .state-error {
   padding: 8px 12px;
   border-radius: 8px;
