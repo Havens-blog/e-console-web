@@ -6,9 +6,71 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="息壤 Xirang - 平台控制台，统一入口与身份治理" />
     <title>息壤 · 控制台</title>
+    <!--
+      首屏兜底（iter308 / R14「慢网白屏」）：路由守卫在拉 profile 期间，route.matched 为空，
+      App.vue 会走裸 router-view 分支而渲染成空节点，慢网下（实测 profile 延迟 3s）
+      整页白屏 3 秒以上，用户以为页面挂了。
+      占位放在 #app **之外**（app.mount 只清空 #app 内部，同步渲染根组件，
+      而根组件在守卫就绪前渲染为空 —— 所以放在 #app 内会被一起清掉、起不到作用）。
+      由 main.ts 在 router.isReady() 之后移除。
+      延迟 400ms 才淡入 —— 正常网络下 Vue 在这之前就就绪，占位根本来不及显示，不会闪。
+    -->
+    <style>
+      .boot-fallback {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        color: #8a8f98;
+        font: 500 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", sans-serif;
+        background: #0f1115;
+        opacity: 0;
+        animation: boot-fallback-in 0.2s ease 0.4s forwards;
+      }
+      .boot-fallback__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4c7dff;
+        animation: boot-fallback-pulse 1s ease-in-out infinite;
+      }
+      @keyframes boot-fallback-in {
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes boot-fallback-pulse {
+        0%,
+        100% {
+          transform: scale(0.8);
+          opacity: 0.5;
+        }
+        50% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+      /* 尊重「减弱动效」偏好（与仓内既有做法一致） */
+      @media (prefers-reduced-motion: reduce) {
+        .boot-fallback {
+          animation: none;
+          opacity: 1;
+        }
+        .boot-fallback__dot {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
+    <div id="boot-fallback" class="boot-fallback" role="status" aria-live="polite">
+      <span class="boot-fallback__dot" aria-hidden="true"></span>
+      <span>正在加载控制台…</span>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
