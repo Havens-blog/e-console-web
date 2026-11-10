@@ -108,16 +108,26 @@ export function checkOne(entry, sourceRoot, localRoot) {
   }
 
   // ── 方向 1：源漂移（e-cam-web 源文件）───────────────────────────
-  const srcAbs = join(sourceRoot, entry.sourcePath)
-  if (!existsSync(srcAbs)) {
-    out.drifted = true
-    out.error = `源文件不存在: ${srcAbs}`
+  // 例外（2026-11-10 / P4）：`independentlyMaintained: true` 的条目**跳过源漂移检查**。
+  // 适用场景：两边是「同名但按各自依赖结构实现」的适配层，源仓会持续演进而本仓无法跟随
+  // （例：`eiam.ts` —— e-cam-web 版复用 ./index 与 @/utils/cookie，而 haven-console 无这两个模块，
+  // 只能自包含实现）。这类文件**不适合逐 blob 比对**，但**仍校验本仓自身 sha256**（下方方向 2），
+  // 保证本仓文件不被意外改动。分叉理由必须写在条目的 `note` 里。
+  if (entry.independentlyMaintained === true) {
+    out.sourceSkipped = true
+    out.drifted = false
   } else {
-    const buf = readFileSync(srcAbs)
-    out.lf = sha256Lf(buf)
-    out.crlf = sha256Crlf(buf)
-    // 任一形态匹配参考值 → 未漂移
-    out.drifted = out.lf !== out.reference && out.crlf !== out.reference
+    const srcAbs = join(sourceRoot, entry.sourcePath)
+    if (!existsSync(srcAbs)) {
+      out.drifted = true
+      out.error = `源文件不存在: ${srcAbs}`
+    } else {
+      const buf = readFileSync(srcAbs)
+      out.lf = sha256Lf(buf)
+      out.crlf = sha256Crlf(buf)
+      // 任一形态匹配参考值 → 未漂移
+      out.drifted = out.lf !== out.reference && out.crlf !== out.reference
+    }
   }
 
   // ── 方向 2：本仓漂移（haven-console 拷贝）───────────────────────
@@ -177,7 +187,15 @@ export function formatReport(result) {
   lines.push(`拷贝面漂移比对（源仓: ${result.sourceRepo} @ ${result.sourceRoot}；本仓 @ ${result.localRoot}）`)
   lines.push('─'.repeat(60))
   for (const r of result.results) {
-    const status = r.drifted && r.localDrifted ? 'DRIFT(双)' : r.drifted ? 'DRIFT(源)' : r.localDrifted ? 'DRIFT(本仓)' : 'OK'
+    const status = r.sourceSkipped
+      ? '独立维护(跳过源比对)'
+      : r.drifted && r.localDrifted
+        ? 'DRIFT(双)'
+        : r.drifted
+          ? 'DRIFT(源)'
+          : r.localDrifted
+            ? 'DRIFT(本仓)'
+            : 'OK'
     lines.push(`[${status}] ${r.path}`)
     lines.push(`    sourceCommit : ${r.sourceCommit || '(未登记)'}`)
     lines.push(`    reference(源): ${r.reference}`)
