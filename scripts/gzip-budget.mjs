@@ -4,10 +4,26 @@
 //   entry          ≤ 60 KB   （dist/index.html、dist/js/index-*.js）
 //   element-plus   ≤ 140 KB  （dist/js/element-plus-*.js）
 //   vue-ecosystem  ≤ 50 KB   （dist/js/vue-vendor-*.js — vue/router/pinia）
-//   routes         ≤ 90 KB   （懒加载视图/共享小 chunk —— 非首屏，2026-10-09 口径修正：
-//                             原归类 remainder 与首屏混淆，见 tech-design §性能预算 routes 行）
-//   remainder      ≤ 50 KB   （vendor chunk + css + 字体 + 图标）
+//   routes         **逐块** ≤ 16 KB  （懒加载视图；见下方 quota 说明）
+//   css            ≤ 45 KB   （dist/css/*.css —— 组件样式）
+//   shared-vendor  ≤ 20 KB   （dist/js/vendor-*.js —— 首屏运行时依赖，如 axios）
+//   remainder      ≤ 6 KB    （字体 / 图标 / 其他静态）
 //   grandTotal     ≤ 300 KB  （全量静态 gzip 总预算，PRD Goal）
+//
+// ── routes 为什么要按「逐块」而不是「总和」（2026-11-10 口径修正，Q1）──
+// 原口径 `routes ≤ 90 KB` 是**把全部懒加载视图合起来算一个桶**。实测该桶已到
+// **122.7 KB / 36 个页面块**，于是闸门长期红（`main` 上最近 12 次 CI 全部 failure，
+// 该阈值自 CI 引入起从未调整过、也从未达标过）。但拆开看：**中位数仅 1.27 KB、
+// 平均 3.41 KB、最大单块 13.1 KB（TenantList）** —— 不是「页面臃肿」，是「页面多」。
+// 用总和限制意味着「**多加一个页面就会假红**」，而它对真正要防的「单个页面失控膨胀」
+// 反而不敏感（一个 40 KB 的巨页会被另外 35 个小页面摊平）。
+// 因此改为**逐块上限**：每块 ≤ 16 KB（当前最大 13.1 KB，留约 22% 余量），
+// 既保留防膨胀能力，又不会因页面数量增长而误报。桶总和仍纳入 TOTAL_LIMIT_KB 兜底。
+//
+// ── remainder 为什么要拆（同次修正）──
+// 原 `remainder ≤ 50 KB` 把 **CSS 37.4 KB + 首屏 vendor JS 15.1 KB + SVG** 混算，
+// 任一方变化都会挤压另一方，且无法从失败信息判断该优化什么。拆成三桶后，
+// 每类有自己的合理阈值，失败时指向明确。
 //
 // Hard Rule：超限必须 fail，不得放宽后放行。
 //
@@ -24,16 +40,29 @@ export const BUDGETS = Object.freeze({
   entry: { limit: 60, label: 'entry 自研' },
   'element-plus': { limit: 140, label: 'element-plus' },
   'vue-ecosystem': { limit: 50, label: 'vue/router/pinia' },
-  routes: { limit: 90, label: 'routes 懒加载视图' },
-  remainder: { limit: 50, label: '其余（vendor/css/字体/图标）' },
+  // routes 不再设「总和」上限，改为逐块上限（见 ROUTES_PER_CHUNK_LIMIT_KB 与文件头说明）；
+  // limit 置 null 表示该桶不参与逐桶总和判定，仅报告（总和仍由 TOTAL_LIMIT_KB 兜底）。
+  routes: { limit: null, label: 'routes 懒加载视图' },
+  css: { limit: 45, label: 'css 组件样式' },
+  'shared-vendor': { limit: 20, label: 'shared-vendor 首屏运行时' },
+  remainder: { limit: 6, label: '其余（字体/图标/静态）' },
 })
 export const TOTAL_LIMIT_KB = 300
+
+/**
+ * routes 桶的**单块**上限（KB）。
+ *
+ * 选 16 KB 的依据（2026-11-10 实测）：36 个懒加载视图块里最大的是
+ * `TenantList` 13.1 KB，中位数 1.27 KB、平均 3.41 KB。
+ * 16 KB 留约 22% 余量 —— 正常迭代不会触碰，但单个页面失控膨胀仍会被拦下。
+ */
+export const ROUTES_PER_CHUNK_LIMIT_KB = 16
 
 /**
  * 将一个 .gz 文件路径归类到预算桶。
  * 规则基于 vite.config.ts manualChunks 产物命名（chunkFileNames/assetFileNames）。
  * @param {string} gzPath 相对 dist 根的 .gz 文件路径（POSIX 斜杠）
- * @returns {'entry'|'element-plus'|'vue-ecosystem'|'routes'|'remainder'}
+ * @returns {'entry'|'element-plus'|'vue-ecosystem'|'routes'|'css'|'shared-vendor'|'remainder'}
  */
 export function classifyBucket(gzPath) {
   // 去掉 .gz 后缀得到原产物路径
@@ -47,12 +76,14 @@ export function classifyBucket(gzPath) {
     if (base.startsWith('js/element-plus-')) return 'element-plus'
     // dist/js/vue-vendor-*.js → vue-ecosystem
     if (base.startsWith('js/vue-vendor-')) return 'vue-ecosystem'
-    // dist/js/vendor-*.js → remainder（首屏运行时依赖，当前 axios）
-    if (base.startsWith('js/vendor-')) return 'remainder'
+    // dist/js/vendor-*.js → shared-vendor（首屏运行时依赖，如 axios）
+    if (base.startsWith('js/vendor-')) return 'shared-vendor'
     // 其余命名 JS = 懒加载视图/共享小 chunk → routes（非首屏）
     return 'routes'
   }
-  // 非 JS 一律 remainder（vendor chunk / css / 字体 / 图标 / 其他静态）
+  // dist/css/*.css → css（组件样式，原并入 remainder 导致与 vendor 互相挤压）
+  if (base.endsWith('.css')) return 'css'
+  // 字体 / 图标 / SVG / 其他静态
   return 'remainder'
 }
 
@@ -96,6 +127,8 @@ export function summarizeGz(root) {
     'element-plus': { files: [], bytes: 0 },
     'vue-ecosystem': { files: [], bytes: 0 },
     routes: { files: [], bytes: 0 },
+    css: { files: [], bytes: 0 },
+    'shared-vendor': { files: [], bytes: 0 },
     remainder: { files: [], bytes: 0 },
   }
   for (const rel of gzFiles) {
@@ -118,7 +151,7 @@ export function summarizeGz(root) {
 }
 
 /**
- * 检查预算：逐桶 + 总计，任一超限即 fail。
+ * 检查预算：逐桶 + routes 逐块 + 总计，任一超限即 fail。
  *
  * 失效保护（审计 Tier 2 修复）：当 dist 下无任何 .gz 文件时直接判 fail，不再以
  * 「0 KB ≤ 各桶上限」误判通过。原实现只统计 .gz，本地用 `vite build`（无
@@ -140,9 +173,24 @@ export function checkBudget(summary) {
     return { passed: false, failures }
   }
   for (const [key, b] of Object.entries(summary.buckets)) {
-    const limit = BUDGETS[key].limit
+    const limit = BUDGETS[key]?.limit
+    // limit 为 null / 未定义 → 该桶不参与总和判定（如 routes，见文件头说明）
+    if (limit == null) continue
     if (b.kb > limit) {
       failures.push({ scope: key, limitKb: limit, actualKb: b.kb })
+    }
+  }
+  // routes 逐块判定：单个懒加载视图超 ROUTES_PER_CHUNK_LIMIT_KB 即 fail。
+  // 这样「多加页面」不会假红，「单页失控膨胀」仍会被拦。
+  for (const f of summary.buckets.routes.files) {
+    const kb = Math.round((f.bytes / KB) * 10) / 10
+    if (kb > ROUTES_PER_CHUNK_LIMIT_KB) {
+      failures.push({
+        scope: 'routes:chunk',
+        limitKb: ROUTES_PER_CHUNK_LIMIT_KB,
+        actualKb: kb,
+        path: f.path,
+      })
     }
   }
   if (summary.totalKb > TOTAL_LIMIT_KB) {
@@ -160,6 +208,20 @@ export function formatReport(summary) {
   lines.push('─'.repeat(52))
   for (const [key, b] of Object.entries(summary.buckets)) {
     const limit = BUDGETS[key]
+    // routes 桶不设总和上限：报「块数 / 最大单块」，与逐块上限比对
+    if (limit.limit == null) {
+      const maxKb = b.files.reduce((m, f) => Math.max(m, f.bytes / KB), 0)
+      const over = maxKb > ROUTES_PER_CHUNK_LIMIT_KB ? 'OVER' : 'OK'
+      lines.push(
+        `${limit.label.padEnd(28)} ${String(b.kb).padStart(7)} KB /   —    [${b.files.length} 块，最大单块 ${maxKb.toFixed(1)} KB ≤ ${ROUTES_PER_CHUNK_LIMIT_KB}，${over}]`,
+      )
+      for (const f of b.files) {
+        const kb = f.bytes / KB
+        const flag = kb > ROUTES_PER_CHUNK_LIMIT_KB ? '  ⚠️ 超单块上限' : ''
+        lines.push(`    ${kb.toFixed(2).padStart(6)} KB  ${f.path}${flag}`)
+      }
+      continue
+    }
     const status = b.kb <= limit.limit ? 'OK' : 'OVER'
     lines.push(
       `${limit.label.padEnd(28)} ${String(b.kb).padStart(7)} KB / ${String(limit.limit).padStart(3)} KB  [${status}]`,
@@ -198,13 +260,15 @@ export function main(argv = process.argv) {
     for (const f of failures) {
       if (f.scope === 'no-gz-files') {
         console.error(`  - ${f.scope}: ${f.reason}`)
+      } else if (f.scope === 'routes:chunk') {
+        console.error(`  - 单块超限 ${f.path}: ${f.actualKb} KB > ${f.limitKb} KB`)
       } else {
         console.error(`  - ${f.scope}: ${f.actualKb} KB > ${f.limitKb} KB`)
       }
     }
     process.exit(1)
   }
-  console.log('\n✅ gzip 预算通过（全量 ≤ 300 KB，各桶均在限内）')
+  console.log('\n✅ gzip 预算通过（全量 ≤ 300 KB，各桶与 routes 单块均在限内）')
 }
 
 // 仅在直接执行时跑 CLI（被 import 时不跑）

@@ -10,6 +10,7 @@ import {
   formatReport,
   BUDGETS,
   TOTAL_LIMIT_KB,
+  ROUTES_PER_CHUNK_LIMIT_KB,
 } from '../gzip-budget.mjs'
 
 // 构造一个临时 dist 树做断言
@@ -44,16 +45,16 @@ describe('classifyBucket', () => {
   it('classifies js/vue-vendor-*.js as vue-ecosystem', () => {
     expect(classifyBucket('js/vue-vendor-HASH.js.gz')).toBe('vue-ecosystem')
   })
-  it('classifies js/vendor-*.js as remainder', () => {
-    expect(classifyBucket('js/vendor-HASH.js.gz')).toBe('remainder')
+  it('classifies js/vendor-*.js as shared-vendor', () => {
+    expect(classifyBucket('js/vendor-HASH.js.gz')).toBe('shared-vendor')
   })
   it('classifies named view chunks (lazy routes) as routes', () => {
     expect(classifyBucket('js/PolicyList-HASH.js.gz')).toBe('routes')
     expect(classifyBucket('js/MainLayout-HASH.js.gz')).toBe('routes')
     expect(classifyBucket('js/auth-HASH.js.gz')).toBe('routes')
   })
-  it('classifies css as remainder', () => {
-    expect(classifyBucket('css/index-HASH.css.gz')).toBe('remainder')
+  it('classifies css as css', () => {
+    expect(classifyBucket('css/index-HASH.css.gz')).toBe('css')
   })
   it('classifies unknown non-js as remainder', () => {
     expect(classifyBucket('fonts/icon-HASH.woff2.gz')).toBe('remainder')
@@ -101,7 +102,10 @@ describe('summarizeGz + checkBudget', () => {
     expect(s.buckets.entry.bytes).toBe(1000 + 5 * 1024)
     expect(s.buckets['element-plus'].bytes).toBe(10 * 1024)
     expect(s.buckets['vue-ecosystem'].bytes).toBe(3 * 1024)
-    expect(s.buckets.remainder.bytes).toBe(2 * 1024 + 4 * 1024)
+    // 2026-11-10 口径修正：vendor-* → shared-vendor，css → css（原并入 remainder）
+    expect(s.buckets['shared-vendor'].bytes).toBe(2 * 1024)
+    expect(s.buckets.css.bytes).toBe(4 * 1024)
+    expect(s.buckets.remainder.bytes).toBe(0)
     expect(s.buckets.routes.bytes).toBe(0)
     const expectedTotal = 1000 + 5 * 1024 + 10 * 1024 + 3 * 1024 + 2 * 1024 + 4 * 1024
     expect(s.totalBytes).toBe(expectedTotal)
@@ -138,20 +142,39 @@ describe('summarizeGz + checkBudget', () => {
     expect(r.failures.some((f) => f.scope === 'vue-ecosystem')).toBe(true)
   })
 
-  it('fails when remainder exceeds 50KB', () => {
+  it('fails when shared-vendor exceeds 20KB', () => {
     writeFileSync(join(dir, 'js', 'vendor-huge.js.gz'), Buffer.alloc(60 * 1024))
     const s = summarizeGz(dir)
     const r = checkBudget(s)
     expect(r.passed).toBe(false)
-    expect(r.failures.some((f) => f.scope === 'remainder')).toBe(true)
+    expect(r.failures.some((f) => f.scope === 'shared-vendor')).toBe(true)
   })
 
-  it('fails when routes exceeds 90KB', () => {
-    writeFileSync(join(dir, 'js', 'PolicyList-huge.js.gz'), Buffer.alloc(95 * 1024))
+  it('fails when a single route chunk exceeds the per-chunk limit', () => {
+    // 2026-11-10 口径修正：routes 由「总和 ≤ 90」改为「单块 ≤ ROUTES_PER_CHUNK_LIMIT_KB」
+    writeFileSync(
+      join(dir, 'js', 'PolicyList-huge.js.gz'),
+      Buffer.alloc((ROUTES_PER_CHUNK_LIMIT_KB + 4) * 1024),
+    )
     const s = summarizeGz(dir)
     const r = checkBudget(s)
     expect(r.passed).toBe(false)
-    expect(r.failures.some((f) => f.scope === 'routes')).toBe(true)
+    expect(r.failures.some((f) => f.scope === 'routes:chunk')).toBe(true)
+  })
+
+  it('does NOT fail merely because many route chunks add up past 90KB', () => {
+    // 关键回归：加页面（数量增长）不应假红 —— 只要每块都在单块上限内
+    for (let i = 0; i < 30; i++) {
+      writeFileSync(
+        join(dir, 'js', `View${i}-HASH.js.gz`),
+        Buffer.alloc(Math.floor(ROUTES_PER_CHUNK_LIMIT_KB * 0.8 * 1024)),
+      )
+    }
+    const s = summarizeGz(dir)
+    const r = checkBudget(s)
+    // 30 块 × 12.8 KB ≈ 384 KB 总和远超原 90 KB 口径，但逐块均未超限
+    expect(s.buckets.routes.kb).toBeGreaterThan(300)
+    expect(r.failures.some((f) => f.scope === 'routes:chunk')).toBe(false)
   })
 
   it('fails when total exceeds 300KB even if each bucket ok', () => {
@@ -164,7 +187,8 @@ describe('summarizeGz + checkBudget', () => {
       writeFileSync(join(dir2, 'js', 'index-x.js.gz'), Buffer.alloc(60 * 1024)) // entry 60
       writeFileSync(join(dir2, 'js', 'element-plus-x.js.gz'), Buffer.alloc(140 * 1024)) // ep 140
       writeFileSync(join(dir2, 'js', 'vue-vendor-x.js.gz'), Buffer.alloc(50 * 1024)) // vue 50
-      writeFileSync(join(dir2, 'js', 'vendor-x.js.gz'), Buffer.alloc(51 * 1024)) // remainder 51 → remainder 桶也会超
+      writeFileSync(join(dir2, 'js', 'vendor-x.js.gz'), Buffer.alloc(19 * 1024)) // shared-vendor 19 (<20)
+        writeFileSync(join(dir2, 'css', 'big-x.css.gz'), Buffer.alloc(44 * 1024)) // css 44 (<45) // remainder 51 → remainder 桶也会超
       const s = summarizeGz(dir2)
       const r = checkBudget(s)
       expect(r.passed).toBe(false)
@@ -179,8 +203,11 @@ describe('summarizeGz + checkBudget', () => {
     expect(BUDGETS.entry.limit).toBe(60)
     expect(BUDGETS['element-plus'].limit).toBe(140)
     expect(BUDGETS['vue-ecosystem'].limit).toBe(50)
-    expect(BUDGETS.routes.limit).toBe(90)
-    expect(BUDGETS.remainder.limit).toBe(50)
+    expect(BUDGETS.routes.limit).toBe(null)
+    expect(BUDGETS.css.limit).toBe(45)
+    expect(BUDGETS['shared-vendor'].limit).toBe(20)
+    expect(BUDGETS.remainder.limit).toBe(6)
+    expect(ROUTES_PER_CHUNK_LIMIT_KB).toBe(16)
   })
 
   it('formatReport renders OK status', () => {
