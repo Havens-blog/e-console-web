@@ -169,15 +169,42 @@ async function retry(): Promise<void> {
   gap: 16px;
 }
 
+/**
+ * 错误提示（iter309 / R14「错误态主题不一致」）。
+ *
+ * 缺陷：原先写的是 `background: var(--bg-danger-subtle, #fef0f0)` 与
+ * `color: var(--text-danger, #c45656)` —— **这两个变量在全仓都没有定义**，
+ * 于是永远落到兜底值：**浅粉底 #fef0f0 + 固定红字 #c45656**，
+ * 在深色主题（默认态，页面底 #0f1115 系）下是一块突兀的浅色砖，与其它页面错误态不一致。
+ *
+ * 现改为：底色取 `--color-danger` 12% 透明的「软着色」（与 `StatusBadge` /
+ * `PolicyStatementsEditor` 同款），文字色按主题分两档 ——
+ * **因为 `#ef4444` 无论怎么混黑/混白都无法同时满足两主题的 4.5:1**：
+ * 原色 vs 深底 #0f1011 = 5.06（够）、vs 白底 = 3.76（不够）；混 85% 黑则反过来（3.81 / 4.99）。
+ * 所以深色偏亮一档、浅色偏暗一档，两个都实测达标（见 PR 证据）。
+ *
+ * 两处选型踩坑（都验过才定）：
+ * ① `--status-danger` 看似更合适（它本就按主题给了两套值），但它定义在
+ *    `console-tokens.scss` —— **该文件全仓从未被 import**，运行时变量不存在，
+ *    实测 `color-mix` 退成 `transparent`、`color` 退成继承黑，深色下对比度只剩 **1.10:1**。
+ * ② scoped 里的 `:global(:root.light) …`（两种写法都试过）**不会被编译进产物**，
+ *    改用后代选择器 `:root.light .ts-error-msg` 才生效（`.light` 挂在 html 上，属祖先）。
+ */
 .ts-error-msg {
   margin: 0;
   padding: 12px 16px;
   width: 100%;
   border-radius: 8px;
-  background: var(--bg-danger-subtle, #fef0f0);
-  color: var(--text-danger, #c45656);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  /* 深色（默认）：亮一档，与 #0f1011 底达 AA */
+  color: color-mix(in srgb, var(--color-danger) 82%, white);
   font-size: 14px;
   text-align: center;
+}
+
+/* 浅色：暗一档，与白底达 AA */
+:root.light .ts-error-msg {
+  color: color-mix(in srgb, var(--color-danger) 72%, black);
 }
 
 .ts-hint {
