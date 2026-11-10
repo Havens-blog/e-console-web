@@ -40,6 +40,17 @@ useThemeStore();
 
 app.mount("#app");
 
+// 首屏占位移除（iter308 / R14「慢网白屏」）：index.html 里 #boot-fallback 是纯静态占位，
+// 用于覆盖「守卫拉 profile 期间 route.matched 为空、根组件渲染空节点」造成的白屏。
+// 放到 router.isReady() 之后再移除 —— 那时守卫链已跑完、首个路由已解析，页面必有内容。
+// 若就绪失败（网络中断等）则保留占位，用户看到的是「正在加载」而不是白屏。
+void router
+  .isReady()
+  .catch(() => {})
+  .finally(() => {
+    document.getElementById("boot-fallback")?.remove();
+  });
+
 // ---- E2E 调试钩子（localhost 限定，永不暴露于生产部署）----
 // 任务 3.4 S-M2-06 写前守卫负向场景所需：在真实浏览器中制造跨标签租户切换
 // 后的 stale-snapshot 条件并调用 enforceWriteGuard（3.1 工具，4.x/5.x list store
