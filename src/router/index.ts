@@ -167,6 +167,20 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/views/error/Forbidden.vue'),
     meta: { public: true },
   },
+  {
+    // 404 兜底（iter338）：此前路由表**没有 catch-all**，任何未登记路径都会命中
+    // vue-router 的「无匹配」分支 —— `router-view` 渲染空，用户看到**完全白屏、零提示**。
+    // 实测 `/console/idp` → `#app` innerHTML 仅 7 字符、无任何 4xx 请求、控制台无报错。
+    //
+    // 必须放在**最后一条**：vue-router 按数组顺序匹配，catch-all 若在前面会吃掉所有路由。
+    // `meta.public: true` —— 未登录用户访问未知路径时也应看到 404（而不是被守卫送去登录页），
+    // 否则「地址打错了」和「没登录」两种完全不同的情况会被混成同一个跳转。
+    // 注意不要把它指到 /forbidden：那会误导用户以为自己权限不足、去申请不存在的权限。
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/error/NotFound.vue'),
+    meta: { public: true },
+  },
 ]
 
 export const router = createRouter({

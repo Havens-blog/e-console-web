@@ -196,9 +196,27 @@ describe('2.6 路由表注册', () => {
         '/audit',
         '/tenant-select',
         '/forbidden',
+        // 404 兜底（iter338）：此前路由表无 catch-all，未登记路径会渲染成完全白屏
+        '/:pathMatch(.*)*',
       ]),
     )
-    expect(routes).toHaveLength(17)
+    expect(routes).toHaveLength(18)
+  })
+
+  it('404 catch-all 必须在最后一条且 meta.public（否则会吃掉后续路由 / 被守卫送去登录页）', () => {
+    const paths = router.getRoutes().map((r) => r.path)
+    const idx = paths.indexOf('/:pathMatch(.*)*')
+    expect(idx, 'catch-all 应已注册').toBeGreaterThanOrEqual(0)
+    // 必须是数组最后一条：vue-router 按顺序匹配，catch-all 在前面会吞掉后续所有路由
+    expect(idx, 'catch-all 必须是最后一条路由').toBe(paths.length - 1)
+
+    const notFound = router.resolve('/this-path-does-not-exist')
+    expect(notFound.name).toBe('not-found')
+    // public：未登录用户访问未知路径也应看到 404，而不是被送去登录页
+    // （否则「地址打错」和「没登录」两种不同情况会被混成同一个跳转）
+    expect(notFound.meta.public).toBe(true)
+    // 不能指到 /forbidden：那会让用户以为权限不足、去申请根本不存在的权限
+    expect(notFound.name).not.toBe('forbidden')
   })
 
   it('根路径 / 重定向到 /workbench（登录态直接落地不空白）', () => {
