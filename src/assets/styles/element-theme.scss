@@ -298,6 +298,12 @@
   --el-dialog-bg-color: var(--dialog-bg);
   --el-dialog-border-radius: 12px;
   
+  // 窄屏兜底（iter292）：全站 87 处 el-dialog 都写死像素宽度（440~760px），
+  // 390px 手机视口下会左右越界。实测「新建渠道」弹窗（width=560）在 390px 下
+  // right=560、越界 170px。这里统一限宽，不改各页面的 width 声明
+  // （它们在大屏上仍按各自像素值显示，92vw 只在窄屏生效）。
+  max-width: 92vw;
+  
   background-color: var(--dialog-bg);
   border: 1px solid var(--dialog-border);
   box-shadow: var(--shadow-lg);
@@ -326,6 +332,10 @@
 // 抽屉
 .el-drawer {
   --el-drawer-bg-color: var(--dialog-bg);
+  
+  // 窄屏兜底（iter292）：全站 15 处 el-drawer 写死像素宽度（420~720px），
+  // 390px 下同样左右越界；与上面 .el-dialog 同一处理。
+  max-width: 92vw;
   
   background-color: var(--dialog-bg);
   
