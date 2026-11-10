@@ -109,10 +109,16 @@ onUnmounted(() => {
 <template>
   <div class="layout">
     <!-- 桌面态侧边栏（抽屉态时改为 fixed 覆盖层） -->
+    <!--
+      inert（iter307）：窄屏抽屉收起时，侧栏只是被 transform 平移到视口外（x=-221），
+      DOM 仍可见、10 个可聚焦元素仍在 Tab 序列里 —— 实测按 Tab 8 次全部落在视口外的菜单项上，
+      键盘用户会以为键盘失灵。加 inert 一并阻止聚焦与读屏播报；抽屉打开时（drawerOpen）恢复。
+    -->
     <SidebarMenu
       :class="{ 'is-drawer-mounted': isNarrow }"
       :collapsed="isNarrow ? false : collapsed"
       :drawer-open="drawerOpen"
+      :inert="isNarrow && !drawerOpen"
       @logo-click="onLogoClick"
     />
     <!-- 窄屏抽屉覆盖层（点击关闭） -->
