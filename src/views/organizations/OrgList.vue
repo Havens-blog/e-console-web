@@ -85,9 +85,22 @@ onMounted(async () => {
     </header>
 
     <!-- 读屏播报：组织树初次加载与刷新都经此常驻区域播报（视觉不可见）。
-         原先只有 aria-busy 与骨架，读屏得不到「正在加载」信息（与列表页 R5 同类问题）。 -->
+         原先只有 aria-busy 与骨架，读屏得不到「正在加载」信息（与列表页 R5 同类问题）。
+
+         iter345 补充：原实现只在 loading 时输出文本、加载完成后恒为空字符串
+         （实测 `/console/organizations` 的 role=status 在 t=1.5s/3.5s/8s 三个采样点**都是 ""**）。
+         空 live region 等于没播报 —— 读屏用户等完加载什么也听不到。
+         现补齐「加载完后的条数 / 空态」，与 users/roles/policies 等页同口径。 -->
     <p class="sr-only" role="status" aria-live="polite">
-      {{ store.loading ? "正在加载组织树…" : "" }}
+      {{
+        store.loading
+          ? "正在加载组织树…"
+          : isError
+            ? "组织数据加载失败，可点击重试"
+            : store.items.length === 0
+              ? "暂无组织数据"
+              : `共 ${store.items.length} 个组织`
+      }}
     </p>
 
     <!-- 错误态（重试） -->

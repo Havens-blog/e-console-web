@@ -359,6 +359,23 @@ function createdText(g: TenantGroup): string {
       </button>
     </header>
 
+    <!-- 读屏播报（iter345）：加载中 / 空结果 / 结果条数都经此常驻区域播报（视觉不可见）。
+         本页此前**没有 live region** —— 视觉上能看到骨架、空态文案和「共 N 条」，
+         但读屏用户得不到任何反馈（与 R5/R16 在 users/roles/policies 等页修过的是同类问题，
+         当时只覆盖了 5 个列表页，本页与 invitations / audit 漏掉了）。
+         空态区分「有筛选」与「真没数据」：前者提示可清筛选，后者说明确实没有数据。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{
+        store.loading
+          ? "正在加载用户组列表…"
+          : isEmpty
+            ? hasActiveFilters
+              ? "没有匹配的用户组，已保留当前筛选条件"
+              : "暂无用户组数据"
+            : `共 ${store.total} 条`
+      }}
+    </p>
+
     <!-- 工具条：当前页即时筛选（服务端 list 不支持 keyword，故不重查） -->
     <div class="toolbar">
       <input
@@ -1016,5 +1033,20 @@ function createdText(g: TenantGroup): string {
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: 13px;
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中）——
+   与 users/UserList.vue、organizations/OrgList.vue 的 .sr-only 逐字一致。
+   iter345 补：本页新增的 role="status" 播报区依赖它，否则播报文本会视觉可见。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
