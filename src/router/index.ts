@@ -70,36 +70,37 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     component: () => import('@/views/login/Login.vue'),
-    meta: { public: true },
+    meta: { public: true, title: '登录' },
   },
   {
     path: '/workbench',
     component: () => import('@/views/workbench/Workbench.vue'),
+    meta: { title: '工作台' },
   },
   {
     path: '/users',
     component: () => import('@/views/users/UserList.vue'),
-    meta: { permissions: [IAM_USER.VIEW] },
+    meta: { permissions: [IAM_USER.VIEW], title: '用户管理' },
   },
   {
     path: '/users/:id',
     component: () => import('@/views/users/UserDetail.vue'),
-    meta: { permissions: [IAM_USER.VIEW] },
+    meta: { permissions: [IAM_USER.VIEW], title: '用户详情' },
   },
   {
     path: '/organizations',
     component: () => import('@/views/organizations/OrgList.vue'),
-    meta: { permissions: [IAM_DEPARTMENT.VIEW] },
+    meta: { permissions: [IAM_DEPARTMENT.VIEW], title: '组织管理' },
   },
   {
     path: '/tenants',
     component: () => import('@/views/tenants/TenantList.vue'),
-    meta: { requiresAdmin: true, permissions: [IAM_TENANT.VIEW] },
+    meta: { requiresAdmin: true, permissions: [IAM_TENANT.VIEW], title: '租户管理' },
   },
   {
     path: '/identity-sources',
     component: () => import('@/views/identity-sources/IdpList.vue'),
-    meta: { permissions: [IAM_IDENTITY_SOURCE.VIEW] },
+    meta: { permissions: [IAM_IDENTITY_SOURCE.VIEW], title: '身份源管理' },
   },
   {
     // 用户组管理（feat-group-management 契约 §2.4）：平台管理员独占 + iam:group:view 双闸
@@ -124,22 +125,22 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/roles',
     component: () => import('@/views/roles/RoleList.vue'),
-    meta: { permissions: [IAM_ROLE.VIEW] },
+    meta: { permissions: [IAM_ROLE.VIEW], title: '角色管理' },
   },
   {
     path: '/roles/:id',
     component: () => import('@/views/roles/RoleDetail.vue'),
-    meta: { permissions: [IAM_ROLE.VIEW] },
+    meta: { permissions: [IAM_ROLE.VIEW], title: '角色详情' },
   },
   {
     path: '/authorizations',
     component: () => import('@/views/authorizations/AuthorizationList.vue'),
-    meta: { permissions: [IAM_PERMISSION.VIEW_AUTHORIZATIONS] },
+    meta: { permissions: [IAM_PERMISSION.VIEW_AUTHORIZATIONS], title: '授权管理' },
   },
   {
     path: '/policies',
     component: () => import('@/views/policies/PolicyList.vue'),
-    meta: { requiresAdmin: true, permissions: [IAM_POLICY.VIEW] },
+    meta: { requiresAdmin: true, permissions: [IAM_POLICY.VIEW], title: '策略管理' },
   },
   {
     // 审计日志（feat-audit-logs 契约 §2.4）：平台管理员独占 + 两个只读审计码双闸。
@@ -159,13 +160,13 @@ export const routes: RouteRecordRaw[] = [
   {
     path: '/tenant-select',
     component: () => import('@/views/tenant-select/TenantSelect.vue'),
-    meta: { skipTenantGuard: true },
+    meta: { skipTenantGuard: true, title: '选择租户' },
   },
   {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/error/Forbidden.vue'),
-    meta: { public: true },
+    meta: { public: true, title: '无权限' },
   },
   {
     // 404 兜底（iter338）：此前路由表**没有 catch-all**，任何未登记路径都会命中
@@ -179,7 +180,7 @@ export const routes: RouteRecordRaw[] = [
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/error/NotFound.vue'),
-    meta: { public: true },
+    meta: { public: true, title: '页面不存在' },
   },
 ]
 
@@ -334,4 +335,30 @@ router.beforeEach(async (to) => {
   pageEnterTenantSnapshot = userStore.currentTenantId
 
   return true
+})
+
+// ---- document.title 消费（iter341）----
+//
+// 为什么需要它：`RouteMeta.title` 的契约从 feat-group-management 起就写在类型声明里
+// （见上方 `interface RouteMeta` 的 `title?: string` 注释「文档/面包屑兜底用」），
+// 路由表里也确实登记过 3 条 —— **但从来没有任何代码消费它**。
+//
+// 实测后果（iter341，真实浏览器）：console 的 workbench / users / roles / organizations / audit
+// 五个不同页面，`document.title` **全都是「息壤 · 控制台」**。用户开 5 个标签全部同名，
+// 浏览器标签栏无法区分，只能一个个点开看。
+//
+// 这同时是 **WCAG 2.4.2（Page Titled）** 的直接违规：页面必须有描述其**目的或主题**的标题；
+// 全站同一个标题等同于没有标题。
+//
+// 对照 `e-cam-web`：它的 `router/index.ts` 用 `to.meta.title` 拼出
+// 「资产管理 - CAM 多云资产管理」这类标题，**三站里只有它是对的**。
+//
+// 兜底策略：`meta.title` 缺失时回落到站点名，避免出现「undefined - 息壤 · 控制台」。
+// 用 `afterEach`（而非 beforeEach）：标题应在导航**确认成功后**才改，
+// 否则被重定向打断的导航会留下一闪而过的错误标题。
+const SITE_TITLE = '息壤 · 控制台'
+
+router.afterEach((to) => {
+  const pageTitle = typeof to.meta.title === 'string' ? to.meta.title.trim() : ''
+  document.title = pageTitle ? `${pageTitle} - ${SITE_TITLE}` : SITE_TITLE
 })
