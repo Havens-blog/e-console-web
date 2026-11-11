@@ -31,7 +31,8 @@
  *
  * 只读：本页无任何创建 / 编辑 / 删除 / 导出入口（审计日志不可改，manifest 范围边界）。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { listAuthLogs, listOperationLogs } from "@/api/auditLogs";
 import type {
   AuthLog,
@@ -57,6 +58,7 @@ const canViewOperation = computed<boolean>(() =>
 type TabKey = "auth" | "operation";
 /** 默认落在第一个有码的页签；两个码都没有时停在 auth（两个面板都不会渲染） */
 const activeTab = ref<TabKey>(canViewAuth.value ? "auth" : "operation");
+
 
 function errorMessage(err: unknown): string {
   // 服务端拒绝原因（eiam msg）必须原文展示，不套通用文案
@@ -228,6 +230,70 @@ const hasActiveOpFilters = computed(
 const opTotal = ref<number>(0);
 const opPage = ref<number>(1);
 const opPageSize = ref<number>(20);
+
+// ---- URL 同步（iter356，T12 收口）----
+//
+// 为什么需要它：本页有「页签 + 两套独立分页」（认证审计 / 操作审计各自 page+size），
+// 此前**只存在组件内 ref 里**。实测后果：筛到认证审计第 4 页，切到操作审计再切回来、
+// 或刷新页面 → 两个页签的页码都归零，且无法把「某人某天的第 3 页认证日志」这一视图发给同事。
+// 审计页尤其吃亏：**查安全事件往往要把同一个视图发给别人复现**。
+//
+// 口径与 `users/UserList.vue` / `tenants/TenantList.vue` 一致：`replace` 而非 push、
+// 只写非默认值、只增删自己的 key、写前比对。
+//
+// **两套分页用不同前缀**（`page`/`size` 认证审计，`opage`/`osize` 操作审计）——
+// 与 cmdb `quality` 页同一处理，否则两个列表会互相覆盖同一组 query。
+const route = useRoute();
+const router = useRouter();
+
+// 必须防御 route/router 为空：没有 router 注入时（组件单测 mount）`useRoute()` 返回
+// **undefined 而不是抛错**，`route.query` 会在渲染期抛 TypeError。
+// （console 在 iter354 踩过这个坑，表现为「1261 个测试全过、CI job 却 FAILURE」。）
+const hasRouter = route !== undefined && router !== undefined;
+
+function syncStateToUrl(): void {
+  if (!hasRouter) return;
+  const next = { ...route.query } as Record<string, string>;
+  for (const k of ["tab", "page", "size", "opage", "osize"]) delete next[k];
+
+  if (activeTab.value !== "auth") next.tab = activeTab.value;
+  if (authPage.value > 1) next.page = String(authPage.value);
+  if (authPageSize.value !== 20) next.size = String(authPageSize.value);
+  if (opPage.value > 1) next.opage = String(opPage.value);
+  if (opPageSize.value !== 20) next.osize = String(opPageSize.value);
+
+  const cur = route.query as Record<string, unknown>;
+  const same =
+    Object.keys(next).length === Object.keys(cur).length &&
+    Object.entries(next).every(([k, v]) => String(cur[k] ?? "") === v);
+  if (same) return;
+  void router.replace({ path: route.path, query: next });
+}
+
+/** 从 URL 恢复视图状态（刷新 / 切回本页 / 打开分享链接都走这里） */
+function restoreStateFromUrl(): void {
+  if (!hasRouter) return;
+  const tab = route.query.tab;
+  // **恢复页签必须校验权限**：初始值是按码算出来的，URL 里可能写着用户无权的页签。
+  // 若直接采信，会渲染一个空面板且不发请求（该页签的码不满足时 switchTab 也会拒绝）。
+  if (tab === "operation" && canViewOperation.value) activeTab.value = "operation";
+  else if (tab === "auth" && canViewAuth.value) activeTab.value = "auth";
+
+  const size = Number(route.query.size);
+  if (Number.isFinite(size) && size > 0) authPageSize.value = Math.floor(size);
+  const page = Number(route.query.page);
+  if (Number.isFinite(page) && page >= 1) authPage.value = Math.floor(page);
+
+  const osize = Number(route.query.osize);
+  if (Number.isFinite(osize) && osize > 0) opPageSize.value = Math.floor(osize);
+  const opage = Number(route.query.opage);
+  if (Number.isFinite(opage) && opage >= 1) opPage.value = Math.floor(opage);
+}
+
+watch(
+  [activeTab, authPage, authPageSize, opPage, opPageSize],
+  syncStateToUrl,
+);
 const opLoading = ref<boolean>(false);
 const opError = ref<string>("");
 
@@ -326,6 +392,8 @@ async function switchTab(tab: TabKey): Promise<void> {
 }
 
 onMounted(async () => {
+  // 先按 URL 恢复（页签 / 两套分页）再拉数据：否则会先拉默认视图、再因恢复状态拉第二遍
+  restoreStateFromUrl();
   // 只拉当前可见页签；缺码则一律不发请求（契约 §2.3「缺码不渲染且不请求」）
   if (activeTab.value === "auth" && canViewAuth.value) {
     await loadAuthLogs();
