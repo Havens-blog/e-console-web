@@ -35,6 +35,7 @@
  * 批量撤回遵循同一口径：弹窗保持打开、选中不清空、错误原文展示（不谎报部分成功）。
  */
 import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import {
   batchRevokeInvitations,
   createInvitation,
@@ -100,6 +101,58 @@ async function handleRequest(r: JoinRequest, approve: boolean): Promise<void> {
 // ---- 视图页签 ----
 type TabKey = "list" | "requests";
 const activeTab = ref<TabKey>("list");
+
+// ---- URL 同步（iter352，T12）----
+//
+// 为什么需要它：本页有「页签 + 分页 + 每页条数」三种视图状态，但它们**只存在组件内 ref 里**。
+// 实测后果（iter352 普查）：从列表点进某条详情 / 打开成员抽屉后再返回，页签回到「邀请列表」、
+// 页码回到第 1 页、每页条数回到 20 —— 用户在第 7 页操作完，回来必须自己重新翻 7 次。
+// 刷新页面同样全丢，且**分享链接只带得到第 1 页**。
+//
+// 对照：console 的 users/roles/policies/authorizations/groups 五页已同步（`useUrlKeyword` 或手写），
+// CAM 的 31 个列表页里 29 个已同步 —— **本页是 console 剩余未同步页之一**。
+//
+// 实现口径与 `users/UserList.vue` 的 `syncSearchToUrl` 一致：
+//   · 用 `router.replace` 而非 `push` —— 翻页不该往历史栈里塞条目，返回键仍一步回到进入本页之前；
+//   · 写之前先比对，值没变就不写 —— 避免 `router.replace` 在 watch/事件里反复触发导航；
+//   · 空值/默认值从 query 里**删掉**，保持 URL 干净（`?tab=list&page=1&size=20` 这种噪音不写）。
+const route = useRoute();
+const router = useRouter();
+
+/** 把「页签 / 页码 / 每页条数」写回 URL query（replace，不污染历史栈） */
+function syncViewStateToUrl(): void {
+  const next = { ...route.query } as Record<string, string>;
+
+  if (activeTab.value === "requests") next.tab = "requests";
+  else delete next.tab;
+
+  if (invPage.value > 1) next.page = String(invPage.value);
+  else delete next.page;
+
+  if (invPageSize.value !== 20) next.size = String(invPageSize.value);
+  else delete next.size;
+
+  // 值未变化则不写：router.replace 会触发导航，无谓调用会打断用户操作
+  const same =
+    (route.query.tab ?? "") === (next.tab ?? "") &&
+    (route.query.page ?? "") === (next.page ?? "") &&
+    (route.query.size ?? "") === (next.size ?? "");
+  if (same) return;
+
+  void router.replace({ path: route.path, query: next });
+}
+
+/** 从 URL query 恢复视图状态（返回 / 刷新 / 分享链接三种场景都走这里） */
+function restoreViewStateFromUrl(): void {
+  const tab = route.query.tab;
+  if (tab === "requests" || tab === "list") activeTab.value = tab;
+
+  const page = Number(route.query.page);
+  if (Number.isFinite(page) && page >= 1) invPage.value = Math.floor(page);
+
+  const size = Number(route.query.size);
+  if (Number.isFinite(size) && size > 0) invPageSize.value = Math.floor(size);
+}
 
 // ---- 邀请列表 ----
 const invitations = ref<Invitation[]>([]);
@@ -182,6 +235,7 @@ async function loadInvitations(): Promise<void> {
 
 function changeInvPage(p: number): void {
   invPage.value = p < 1 ? 1 : p;
+  syncViewStateToUrl();
   void loadInvitations();
 }
 
@@ -189,6 +243,7 @@ function changeInvPageSize(event: Event): void {
   const size = Number((event.target as HTMLSelectElement).value);
   invPageSize.value = Number.isFinite(size) && size > 0 ? size : 20;
   invPage.value = 1;
+  syncViewStateToUrl();
   void loadInvitations();
 }
 
@@ -252,6 +307,7 @@ async function switchTab(tab: TabKey): Promise<void> {
   if (activeTab.value === tab) return;
   if (tab === "requests" && !canViewRequests.value) return;
   activeTab.value = tab;
+  syncViewStateToUrl();
   if (tab === "list") {
     await loadInvitations();
   } else {
@@ -260,7 +316,15 @@ async function switchTab(tab: TabKey): Promise<void> {
 }
 
 onMounted(async () => {
-  await loadInvitations();
+  // 「进详情/抽屉 → 返回」「刷新」「分享链接」三种场景：先按 URL 恢复视图状态再拉数据，
+  // 否则会先拉第 1 页的列表、再因为恢复页码而拉第二遍（多一次请求且界面闪一下）。
+  restoreViewStateFromUrl();
+  if (activeTab.value === "requests") {
+    // 从 URL 恢复到「加入申请」页签时，要拉的是申请列表而不是邀请列表
+    await loadRequests();
+  } else {
+    await loadInvitations();
+  }
 });
 
 // ---- 角色候选（创建弹窗的角色多选数据源）----

@@ -31,6 +31,7 @@ import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import { createApp } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
 import InvitationList from "./InvitationList.vue";
 import { useUserStore } from "@/stores/user";
 import { IAM_ALL_CODES, IAM_INVITATION } from "@/config/permission-codes";
@@ -135,7 +136,16 @@ async function mountPage(codes: readonly string[] = IAM_ALL_CODES) {
   const userStore = useUserStore();
   userStore.isAdmin = true;
   (userStore as unknown as { permissions: string[] }).permissions = [...codes];
-  const wrapper = mount(InvitationList);
+  // iter352：页面新增 URL 同步（T12）后依赖 `useRoute`/`useRouter`。
+  // 用真 router（memory history）而不是手搓 inject key —— 后者依赖 vue-router 内部
+  // 符号，升级即碎；memory history 是官方测试用法。
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: "/invitations", component: { template: "<div />" } }],
+  });
+  await router.push("/invitations");
+  await router.isReady();
+  const wrapper = mount(InvitationList, { global: { plugins: [router] } });
   await flushPromises();
   return wrapper;
 }
@@ -1088,5 +1098,78 @@ describe("InvitationList：加入申请页签权限（VIEW_REQUESTS）", () => {
       wrapper.find('[data-testid="invitation-panel-requests"]').exists(),
     ).toBe(true);
     expect(requestRows(wrapper)).toHaveLength(1);
+  });
+});
+
+// iter352：URL 同步（T12）
+//
+// 背景：本页有「页签 + 页码 + 每页条数」三种视图状态，此前**只存在组件内 ref 里**。
+// 「进详情/抽屉 → 返回」后页签回到第一页、页码回到 1、每页条数回到 20。
+//
+// 为什么用组件单测而不是浏览器验证：实测 `/console/invitations` 当前**邀请列表为空**
+// （真实数据显示「暂无邀请」），而分页条在 invTotal === 0 时不渲染 ——
+// 「翻到第 3 页再返回」这条路径在真实数据下**不可达**。
+// 这与此前 CAM 证书卡（admin 下 hasCredCard:false）是同一类问题：
+// **UI 分支不可达时，组件单测比死磕 page.route 更可靠**（方法论 iter334）。
+describe("InvitationList：URL 同步（iter352，T12）", () => {
+  /** 用指定 query 挂载（模拟「刷新 / 从详情返回 / 打开分享链接」） */
+  async function mountWithQuery(query: Record<string, string>) {
+    // 必须先清调用记录：否则 `calls[calls.length - 1]` 取到的是**前面测试的残留**，
+    // 断言 `limit === 50` 会因为「上一个测试恰好传过 50」而假绿。
+    // （本轮验证 RED 时正是被这一点骗过：移除恢复逻辑后测试仍然全绿。）
+    listInvitationsMock.mockClear();
+    listJoinRequestsMock.mockClear();
+    freshPinia();
+    const userStore = useUserStore();
+    userStore.isAdmin = true;
+    (userStore as unknown as { permissions: string[] }).permissions = [...IAM_ALL_CODES];
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/invitations", component: { template: "<div />" } }],
+    });
+    await router.push({ path: "/invitations", query });
+    await router.isReady();
+    const wrapper = mount(InvitationList, { global: { plugins: [router] } });
+    await flushPromises();
+    return { wrapper, router };
+  }
+
+  it("默认状态不往 URL 写 query（避免 ?tab=list&page=1&size=20 噪音）", async () => {
+    const { router } = await mountWithQuery({});
+    expect(router.currentRoute.value.query).toEqual({});
+  });
+
+  it("从 URL 恢复每页条数（size=50 → 请求 limit=50）", async () => {
+    await mountWithQuery({ size: "50" });
+    const calls = listInvitationsMock.mock.calls;
+    const last = calls[calls.length - 1]?.[0] as { limit?: number } | undefined;
+    expect(last?.limit).toBe(50);
+  });
+
+  it("从 URL 恢复页码（page=3&size=50 → 请求 offset=100）", async () => {
+    // 必须给足总数：`loadInvitations` 有**页超界回落**（第 220-224 行
+    // `invPage > last && invTotal > 0` → 回落最后页）。若 mock 只返回 1 条，
+    // last = ceil(1/50) = 1，第 3 页即被判超界、回落到第 1 页 —— 那是**正确行为**，
+    // 但会掩盖「页码是否真的从 URL 恢复」。这里给 200 条 → 50/页 = 4 页，第 3 页合法。
+    listInvitationsMock.mockResolvedValue(pageOf([makeInvitation()], 200));
+    await mountWithQuery({ page: "3", size: "50" });
+    const calls = listInvitationsMock.mock.calls;
+    const last = calls[calls.length - 1]?.[0] as { offset?: number } | undefined;
+    // offset = (page - 1) * size = (3 - 1) * 50 = 100
+    expect(last?.offset).toBe(100);
+  });
+
+  it("从 URL 恢复页签（tab=requests → 拉的是申请列表而非邀请列表）", async () => {
+    await mountWithQuery({ tab: "requests" });
+    await flushPromises();
+    expect(listJoinRequestsMock).toHaveBeenCalled();
+  });
+
+  it("非法 query 值被忽略并回落默认（page=abc / size=-1 → offset=0, limit=20）", async () => {
+    await mountWithQuery({ page: "abc", size: "-1" });
+    const calls = listInvitationsMock.mock.calls;
+    const last = calls[calls.length - 1]?.[0] as { offset?: number; limit?: number } | undefined;
+    expect(last?.offset).toBe(0);
+    expect(last?.limit).toBe(20);
   });
 });
