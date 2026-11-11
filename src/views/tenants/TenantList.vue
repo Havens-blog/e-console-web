@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 /**
  * 租户管理列表页（UF-6，task 4.4）。
  *
@@ -18,7 +18,8 @@
  * 新增/编辑（AC-4）：租户名 1–64 字符 + 全局唯一（冲突提示 validation.name_exists）。
  * 删除：依赖删除由 eiam 服务端拒绝（msg 透传）。
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useTenantListStore } from "@/stores/tenantList";
 import { ApiError } from "@/api/types";
 import type { Tenant } from "@/api/types";
@@ -83,12 +84,67 @@ function changePage(p: number): void {
   void store.fetch();
 }
 
+// ---- URL 同步（iter354，T12）----
+//
+// 为什么需要它：本页有「关键词 + 状态筛选 + 页码」三种视图状态，此前**只存在 store 与组件内 ref 里**。
+// 实测后果：筛好「状态=禁用 + 关键词 + 第 3 页」后，进租户详情/成员抽屉再返回、或刷新页面 → 全部归零，
+// 且无法把该视图链接发给同事。租户管理是低频高危操作，**筛选条件往往是「哪些租户需要处理」的结论**，
+// 丢掉要重新筛一遍。
+//
+// 实现口径与 `users/UserList.vue` 的 `syncSearchToUrl` 一致：
+//   · `router.replace` 而非 push —— 翻页/改筛选不该往历史栈塞条目；
+//   · 只写非默认值（关键词空、状态=0 全部、第 1 页）—— 默认状态不产生任何 query；
+//   · 只增删自己这几个 key，其它 query 原样保留；
+//   · 写前比对，值未变不写。
+//
+// **query 参数名用 `search`**（而非 `keyword`）：与 `useUrlKeyword` 及其它已同步页（roles/policies/
+// authorizations/groups/users）保持同一套命名，避免「同一概念两个参数名」。
+const route = useRoute();
+const router = useRouter();
+
+function syncStateToUrl(): void {
+  const next = { ...route.query } as Record<string, string>;
+  for (const k of ["search", "status", "page", "size"]) delete next[k];
+
+  if (store.keyword) next.search = store.keyword;
+  if (store.status !== 0) next.status = String(store.status);
+  if (store.page > 1) next.page = String(store.page);
+  if (store.pageSize !== 20) next.size = String(store.pageSize);
+
+  const cur = route.query as Record<string, unknown>;
+  const same =
+    Object.keys(next).length === Object.keys(cur).length &&
+    Object.entries(next).every(([k, v]) => String(cur[k] ?? "") === v);
+  if (same) return;
+  void router.replace({ path: route.path, query: next });
+}
+
+/** 从 URL 恢复视图状态（刷新 / 从详情返回 / 打开分享链接都走这里） */
+function restoreStateFromUrl(): void {
+  const kw = route.query.search;
+  if (typeof kw === "string" && kw) {
+    keywordInput.value = kw;
+    store.setKeyword(kw);
+  }
+  const st = Number(route.query.status);
+  if (Number.isFinite(st) && st > 0) store.setStatus(Math.floor(st));
+  const size = Number(route.query.size);
+  if (Number.isFinite(size) && size > 0) store.setPageSize(Math.floor(size));
+  const pageNo = Number(route.query.page);
+  if (Number.isFinite(pageNo) && pageNo >= 1) store.setPage(Math.floor(pageNo));
+}
+
+// 三个 store 字段任一变化即写回（用 watch 统一接管，避免某个处理函数忘了调）
+watch(() => [store.keyword, store.status, store.page, store.pageSize], syncStateToUrl);
+
 // ---- 列表加载 ----
 async function reload(): Promise<void> {
   await store.fetch();
 }
 
 onMounted(async () => {
+  // 先按 URL 恢复再拉数据：否则会先拉默认视图、再因恢复状态拉第二遍（多一次请求且界面闪一下）
+  restoreStateFromUrl();
   await store.fetch();
 });
 
