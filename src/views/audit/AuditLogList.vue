@@ -343,6 +343,27 @@ onMounted(async () => {
       <p class="page-subtitle">认证与操作留痕，只读（不可编辑 / 删除）</p>
     </header>
 
+    <!-- 读屏播报（iter345）：本页此前**没有 live region**。
+         视觉上有骨架、空态（「没有匹配的认证审计日志，试试更改筛选条件」）与条数，
+         但读屏用户得不到任何反馈 —— 与 R5/R16 在 users/roles/policies 等页修过的是同类问题，
+         当时只覆盖 5 个列表页，本页与 groups / invitations 漏掉了。
+         本页有两个页签（认证审计 / 操作审计），按当前页签播报对应文案。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{
+        authLoading || opLoading
+          ? activeTab === "auth"
+            ? "正在加载认证审计日志…"
+            : "正在加载操作审计日志…"
+          : activeTab === "auth"
+            ? authTotal === 0
+              ? "没有匹配的认证审计日志"
+              : `共 ${authTotal} 条认证审计日志`
+            : opTotal === 0
+              ? "没有匹配的操作审计日志"
+              : `共 ${opTotal} 条操作审计日志`
+      }}
+    </p>
+
     <!-- 视图切换：认证审计 / 操作审计（各自按权限码显隐） -->
     <div class="tabs" role="tablist" aria-label="审计视图">
       <button
@@ -970,5 +991,20 @@ onMounted(async () => {
     font-size: 13px;
     color: var(--text-regular);
   }
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中）——
+   与 users/UserList.vue、organizations/OrgList.vue 的 .sr-only 逐字一致。
+   iter345 补：本页新增的 role="status" 播报区依赖它，否则播报文本会视觉可见。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>

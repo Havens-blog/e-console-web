@@ -544,6 +544,27 @@ function applicantText(r: JoinRequest): string {
       </button>
     </header>
 
+    <!-- 读屏播报（iter345）：本页此前**没有 live region**。
+         视觉上有骨架（`.skeleton`）、空态（`.state-empty`）与条数，但读屏用户得不到任何反馈 ——
+         与 R5/R16 在 users/roles/policies 等页修过的是同类问题，当时只覆盖 5 个列表页，
+         本页与 groups / audit 漏掉了。
+         本页有两个页签（邀请列表 / 加入申请），按当前页签播报对应文案。 -->
+    <p class="sr-only" role="status" aria-live="polite">
+      {{
+        invLoading || reqLoading
+          ? activeTab === "list"
+            ? "正在加载邀请列表…"
+            : "正在加载加入申请…"
+          : activeTab === "list"
+            ? invTotal === 0
+              ? "暂无邀请"
+              : `共 ${invTotal} 条邀请`
+            : reqTotal === 0
+              ? "暂无加入申请"
+              : `共 ${reqTotal} 条加入申请`
+      }}
+    </p>
+
     <!-- 视图切换：邀请列表 / 加入申请 -->
     <div class="tabs" role="tablist" aria-label="邀请视图">
       <button
@@ -1414,5 +1435,20 @@ function applicantText(r: JoinRequest): string {
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);
   color: var(--color-danger);
   font-size: 13px;
+}
+
+/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中）——
+   与 users/UserList.vue、organizations/OrgList.vue 的 .sr-only 逐字一致。
+   iter345 补：本页新增的 role="status" 播报区依赖它，否则播报文本会视觉可见。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
