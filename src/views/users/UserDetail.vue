@@ -625,19 +625,6 @@ useErrorReveal(saveError, saveErrorRef);
   color: var(--text-primary);
 }
 
-/* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中） */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 .detail-head {
   display: flex;
   align-items: center;
