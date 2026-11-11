@@ -119,8 +119,19 @@ const activeTab = ref<TabKey>("list");
 const route = useRoute();
 const router = useRouter();
 
+// **必须防御 `route`/`router` 为空**：没有 router 注入的上下文（组件单测 mount、Storybook）
+// `useRoute()` 返回 **undefined 而不是抛错**，`route.query` 会在渲染期抛
+// `TypeError: Cannot read properties of undefined (reading 'query')`。
+//
+// 本页的测试注入了 router，所以这个隐患一直没暴露；`TenantList` 的测试用 fake store 且不注入
+// router，同一写法就炸了（CI 上表现为「1261 个测试全过、job 却 FAILURE」）。
+// 同仓 `e-cmdb-web` 的 `useUrlFilters` 写的是 `if (!route || !router) return`，属正确范式，
+// 这里补齐，两页口径一致。
+const hasRouter = route !== undefined && router !== undefined;
+
 /** 把「页签 / 页码 / 每页条数」写回 URL query（replace，不污染历史栈） */
 function syncViewStateToUrl(): void {
+  if (!hasRouter) return;
   const next = { ...route.query } as Record<string, string>;
 
   if (activeTab.value === "requests") next.tab = "requests";
@@ -144,6 +155,7 @@ function syncViewStateToUrl(): void {
 
 /** 从 URL query 恢复视图状态（返回 / 刷新 / 分享链接三种场景都走这里） */
 function restoreViewStateFromUrl(): void {
+  if (!hasRouter) return;
   const tab = route.query.tab;
   if (tab === "requests" || tab === "list") activeTab.value = tab;
 

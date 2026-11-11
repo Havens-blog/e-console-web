@@ -102,7 +102,18 @@ function changePage(p: number): void {
 const route = useRoute();
 const router = useRouter();
 
+// **必须防御 `route`/`router` 为空**：在没有 router 注入的上下文（组件单测 mount、
+// Storybook 等）`useRoute()` 返回 **undefined 而不是抛错**，于是 `route.query` 会在
+// 渲染期抛 `TypeError: Cannot read properties of undefined (reading 'query')`。
+//
+// 这个坑的暴露过程值得记：本地跑 vitest 时它是「1260 passed / 1 failed」，那 1 个失败是
+// 已知的 Windows CRLF 基线，我误读成「与基线一致」；而 **CI 在 Linux 上那个基线测试是绿的**，
+// 于是这条 unhandled error 成了唯一失败源 —— 表现为「1261 个测试全过、job 却 FAILURE」。
+// 同仓 `e-cmdb-web` 的 `useUrlFilters` 早就写了 `if (!route || !router) return`，属正确范式。
+const hasRouter = route !== undefined && router !== undefined;
+
 function syncStateToUrl(): void {
+  if (!hasRouter) return;
   const next = { ...route.query } as Record<string, string>;
   for (const k of ["search", "status", "page", "size"]) delete next[k];
 
@@ -121,6 +132,7 @@ function syncStateToUrl(): void {
 
 /** 从 URL 恢复视图状态（刷新 / 从详情返回 / 打开分享链接都走这里） */
 function restoreStateFromUrl(): void {
+  if (!hasRouter) return;
   const kw = route.query.search;
   if (typeof kw === "string" && kw) {
     keywordInput.value = kw;
