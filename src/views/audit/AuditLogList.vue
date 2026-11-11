@@ -1064,15 +1064,4 @@ onMounted(async () => {
 /* 仅供读屏的隐藏文本（视觉不可见但保留在无障碍树中）——
    与 users/UserList.vue、organizations/OrgList.vue 的 .sr-only 逐字一致。
    iter345 补：本页新增的 role="status" 播报区依赖它，否则播报文本会视觉可见。 */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
 </style>

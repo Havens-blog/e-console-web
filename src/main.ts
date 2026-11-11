@@ -21,6 +21,9 @@ import "./assets/styles/element-theme.scss";
 import "./assets/styles/contrast-overrides.scss";
 // 尊重系统「减弱动效」偏好（WCAG 2.3.3 取向）；本仓自有文件，不参与跨仓漂移对比。
 import "./assets/styles/reduced-motion.scss";
+// 全局工具类（iter362）：`.sr-only` 此前被逐字复制在 11 个页面组件里，现统一到此。
+// 本仓自有文件，不参与跨仓漂移对比。
+import "./assets/styles/utilities.scss";
 
 // 装配：Vue / Router / Pinia 三件基础设施 + 主题恢复。
 // 数据流单向闭环 view → stores → api/eiamAxios 自 2.4（请求层）/ 2.6（守卫）/
