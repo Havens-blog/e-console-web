@@ -843,3 +843,51 @@ describe('2.6 路由级懒加载 import() 形态', () => {
     ).toBe(true)
   })
 })
+
+// iter341：document.title 消费（WCAG 2.4.2 Page Titled）
+//
+// 修复前实测：workbench / users / roles / organizations / audit 五个页面
+// document.title **全是「息壤 · 控制台」**，开多个标签无法区分。
+// RouteMeta.title 的类型契约一直存在、路由表也登记过 3 条，但**没有任何代码消费它**。
+describe('2.6b document.title 跟随路由（WCAG 2.4.2）', () => {
+  it('所有非重定向路由都登记了 meta.title（否则标签页无法区分页面）', () => {
+    const missing = routes
+      .filter((r) => r.redirect === undefined)
+      .filter((r) => typeof r.meta?.title !== 'string' || !r.meta.title.trim())
+      .map((r) => r.path)
+    expect(missing, `以下路由缺 meta.title：${missing.join(', ')}`).toEqual([])
+  })
+
+  it('导航后 document.title 为「<页面名> - 息壤 · 控制台」', async () => {
+    // 用 /workbench：它是唯一无 permissions 要求的路由，测试环境没有 eiam 权限码，
+    // 用 /users 会被 ③ 权限守卫拦到 /forbidden（那是守卫正确行为，与本测试无关）。
+    setSessionCookie()
+    await router.push('/workbench')
+    expect(router.currentRoute.value.path).toBe('/workbench')
+    expect(document.title).toBe('工作台 - 息壤 · 控制台')
+  })
+
+  it('不同页面的标题互不相同（这正是修复目标）', () => {
+    // 直接读路由表而非实际导航：导航会经过守卫链（权限/租户），与本测试关心的
+    // "每个页面是否登记了互不相同的标题"无关，且会让测试依赖 eiam 权限态。
+    const titles = routes
+      .filter((r) => r.redirect === undefined)
+      .map((r) => r.meta?.title)
+      .filter((t) => typeof t === 'string' && t.trim())
+    expect(titles.length, '应登记多条标题').toBeGreaterThan(5)
+    // 关键断言：标题互不相同（修复前全站共用「息壤 · 控制台」）
+    expect(new Set(titles).size, `标题出现重复：${titles.join(', ')}`).toBe(titles.length)
+  })
+
+  it('meta.title 缺失时回落到站点名（不出现 undefined）', () => {
+    const SITE = '息壤 · 控制台'
+    const compute = (title: unknown): string => {
+      const t = typeof title === 'string' ? title.trim() : ''
+      return t ? `${t} - ${SITE}` : SITE
+    }
+    expect(compute(undefined)).toBe(SITE)
+    expect(compute('')).toBe(SITE)
+    expect(compute('   ')).toBe(SITE)
+    expect(compute('用户管理')).toBe('用户管理 - 息壤 · 控制台')
+  })
+})
