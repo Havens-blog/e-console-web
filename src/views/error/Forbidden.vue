@@ -32,7 +32,12 @@ const requiredCodes = computed(() =>
 </script>
 
 <template>
-  <section class="forbidden-page" role="alert" aria-live="polite" aria-labelledby="forbidden-title">
+  <!--
+    根元素是 <main> 而不是 <section>（iter364，与 NotFound.vue 同因）：
+    本页是顶层路由、**不套 MainLayout**，全页无 landmark，读屏用户无法「跳到主内容」。
+    因为不套外壳，实测 mainCount 恰为 1、无嵌套 —— 与 cmdb 的情形相反（那里套 AppShell，不能加）。
+  -->
+  <main class="forbidden-page" role="alert" aria-live="polite" aria-labelledby="forbidden-title">
     <!-- 标题即契约文案本身（不新造第二套措辞）：403 页原先没有任何 h1/h2，
          读屏用户按标题导航时找不到这一页的结构。 -->
     <h1 id="forbidden-title" class="forbidden-title">
@@ -45,7 +50,7 @@ const requiredCodes = computed(() =>
       你的账号没有访问该页面所需的权限，登录状态仍然有效；如需访问请联系管理员申请授权。
     </p>
     <el-button type="primary" plain @click="router.push('/workbench')">返回工作台</el-button>
-  </section>
+  </main>
 </template>
 
 <style scoped>
