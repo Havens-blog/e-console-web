@@ -686,12 +686,18 @@ const hasActiveFilters = computed(
             <!-- G-4：无 list 数据源，活跃会话数列降级 '—'；计数仅在禁用被拒时从拒绝消息提取展示 -->
             <td class="muted">{{ sessionPlaceholder }}</td>
             <td>
+              <!--
+                行内按钮一律带行标识的可访问名（R17c，iter371）：否则读屏只会连续念「编辑 按钮」
+                「编辑 按钮」，用户无法知道当前按钮作用在哪个租户。可见文本保持不变（视觉不变）。
+                范式与本仓 identity-sources/IdpList.vue:403 一致。
+              -->
               <!-- 详情入口（只读；权限 iam:tenant:get，无权限不渲染） -->
               <button
                 v-if="can(IAM_TENANT.GET)"
                 type="button"
                 class="btn btn--text"
                 data-testid="tenant-detail"
+                :aria-label="`详情 ${t.name}`"
                 @click="openDetail(t)"
               >
                 详情
@@ -701,6 +707,7 @@ const hasActiveFilters = computed(
                 type="button"
                 class="btn btn--text"
                 data-testid="edit-tenant"
+                :aria-label="`编辑租户 ${t.name}`"
                 @click="openEdit(t)"
               >
                 编辑
@@ -712,6 +719,7 @@ const hasActiveFilters = computed(
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="disable-tenant"
+                :aria-label="`禁用租户 ${t.name}`"
                 @click="openDisable(t.id, t.name)"
               >
                 禁用
@@ -721,6 +729,7 @@ const hasActiveFilters = computed(
                 type="button"
                 class="btn btn--text"
                 data-testid="enable-tenant"
+                :aria-label="`启用租户 ${t.name}`"
                 @click="enableTenant(t.id)"
               >
                 启用
@@ -730,6 +739,7 @@ const hasActiveFilters = computed(
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="delete-tenant"
+                :aria-label="`删除租户 ${t.name}`"
                 @click="openDelete(t)"
               >
                 删除
@@ -740,6 +750,7 @@ const hasActiveFilters = computed(
                 type="button"
                 class="btn btn--text"
                 data-testid="tenant-members"
+                :aria-label="`查看 ${t.name} 的成员`"
                 @click="openMembers(t)"
               >
                 成员
@@ -750,6 +761,7 @@ const hasActiveFilters = computed(
                 class="btn btn--text"
                 :disabled="settingDefault"
                 data-testid="set-default-tenant"
+                :aria-label="`将 ${t.name} 设为默认`"
                 @click="setDefaultTenant(t.id)"
               >
                 {{ settingDefault ? "设置中…" : "设为默认" }}
