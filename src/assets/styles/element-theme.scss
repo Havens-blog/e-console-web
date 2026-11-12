@@ -100,8 +100,11 @@
     border-color: var(--accent-primary);
 
     &:hover, &:focus {
-      background: #828fff;
-      border-color: #828fff;
+      // iter384: #828fff 在这里是**硬编码**的 hover 底色，白字只有 2.70:1（AA 需 4.5）。
+      //        改为真正的深色 #4b55ae = 6.15:1。hover 在深色主题里变深而非变亮，是刻意的：
+      //        变亮会进一步降低白字对比度（这就是原来 2.70 的成因）。
+      background: #4b55ae;
+      border-color: #4b55ae;
     }
 
     // 链接型主色按钮的 hover 文字色：EP 默认消费 --el-color-primary-light-5（本主题为透明度阶梯，
