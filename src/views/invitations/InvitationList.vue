@@ -740,6 +740,7 @@ function applicantText(r: JoinRequest): string {
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="invitation-revoke"
+                :aria-label="`撤回邀请 ${inv.code}`"
                 @click="openRevoke(inv)"
               >
                 撤回
@@ -801,6 +802,7 @@ function applicantText(r: JoinRequest): string {
                 type="button"
                 class="btn btn--text"
                 data-testid="join-request-approve"
+                :aria-label="`通过 ${r.username || r.nickname || r.id} 的加入申请`"
                 :disabled="handlingId === r.id"
                 @click="handleRequest(r, true)"
               >
@@ -810,6 +812,7 @@ function applicantText(r: JoinRequest): string {
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="join-request-reject"
+                :aria-label="`拒绝 ${r.username || r.nickname || r.id} 的加入申请`"
                 :disabled="handlingId === r.id"
                 @click="handleRequest(r, false)"
               >

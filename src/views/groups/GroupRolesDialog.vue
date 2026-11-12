@@ -407,6 +407,7 @@ const groupName = computed(() => props.group?.name ?? "");
                     type="button"
                     class="btn btn--text btn--danger"
                     data-testid="group-role-remove"
+                    :aria-label="`解绑角色 ${r.name || r.code}`"
                     @click="openRemove(r)"
                   >
                     解绑

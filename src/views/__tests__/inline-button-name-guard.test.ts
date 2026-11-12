@@ -37,15 +37,12 @@ const sources = import.meta.glob('../../**/*.vue', {
  * 刻意逐条列出（而不是整体豁免），这样每修一个就必须删一行 ——
  * 与 `live-announcement-guard` 的 KNOWN_GAPS 同一手法：**清单只会变短，不会被忘记**。
  *
- * iter372 只修了 GroupList（5 个）与 PolicyList（2 个），其余 8 个留待后续。
+ * iter372 修了 GroupList（5 个）与 PolicyList（2 个）；**iter373 补齐剩余 8 个，清单已清空**。
  */
 const KNOWN_GAPS: readonly string[] = [
-  'views/groups/GroupMembersDrawer.vue', // group-member-remove
-  'views/groups/GroupPoliciesDialog.vue', // group-policy-detach
-  'views/groups/GroupRolesDialog.vue', // group-role-remove
-  'views/invitations/InvitationList.vue', // invitation-revoke / join-request-approve / join-request-reject
-  'views/organizations/components/OrgMembersCard.vue', // dept-member-remove
-  'views/tenants/TenantMembersDrawer.vue', // member-remove
+  // iter373：本轮把所有剩余项都修了，清单清空。
+  // 保留这个空数组是有意的 —— 守卫的第二条用例会在「清单里有条目但已修好」时报错，
+  // 将来若发现新的豁免，加到这里即可；**清单只应变短，不应重新变长**。
 ]
 
 /** 提取模板并剥离 HTML 注释 */
