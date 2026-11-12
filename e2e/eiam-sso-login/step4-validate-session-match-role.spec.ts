@@ -185,6 +185,14 @@ test.describe('eiam-sso-login / Step 4: validate session and match role', () => 
     // Assert: NOT redirected to login — 403 stays (behavioral — security)
     await page.waitForTimeout(3_000)
     expect(page.url()).not.toMatch(/\/console\/login/)
+    // 正向锚点（iter370 补）：先证明**页面真的渲染出了工作台**，再断言管理卡片不可见。
+    // 为什么需要：本用例原先只有两条否定式断言（URL 不在登录页 / 管理卡片不可见）。
+    // 实测确认（iter370）：页面白屏时 `not.toBeVisible` **会通过** —— 那样的话本用例会全绿
+    // 但什么都没验证。补一条正向断言后，「渲染正常 + 权限被拒」才构成完整证据。
+    // 实测依据：`profileEnvelope([], false)` 的真实落点是 `/console/workbench`、
+    // `h1="欢迎，管理员"`、`workbench=true`、正文含「角色 普通用户 / 无所属租户」。
+    await expect(page.getByTestId('workbench')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('h1')).toContainText('欢迎', { timeout: 10_000 })
     // Deep: admin-only stat cards NOT visible (role features not unlocked)
     const usersStat = page.getByTestId('stat-card-users')
     await expect(usersStat).not.toBeVisible({ timeout: 3_000 })
