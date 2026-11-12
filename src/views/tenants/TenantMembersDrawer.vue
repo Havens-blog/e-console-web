@@ -679,6 +679,7 @@ const formatTimestamp = (ms: number | undefined): string => formatEpochMs(ms, fa
                       type="button"
                       class="btn btn--text btn--danger"
                       data-testid="member-remove"
+                      :aria-label="`移除成员 ${m.username || m.nickname || m.id}`"
                       @click="openRemove(m)"
                     >
                       移除

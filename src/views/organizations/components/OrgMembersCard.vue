@@ -361,6 +361,7 @@ watch(
                     type="button"
                     class="btn btn--text btn--danger"
                     data-testid="dept-member-remove"
+                    :aria-label="`移除成员 ${m.username || m.displayName || m.id}`"
                     @click="openRemove(m)"
                   >
                     移除

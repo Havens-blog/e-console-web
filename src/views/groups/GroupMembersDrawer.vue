@@ -493,6 +493,7 @@ const groupName = computed(() => props.group?.name ?? "");
                     type="button"
                     class="btn btn--text btn--danger"
                     data-testid="group-member-remove"
+                    :aria-label="`移除成员 ${m.username || m.nickname || m.id}`"
                     @click="openRemove(m)"
                   >
                     移除

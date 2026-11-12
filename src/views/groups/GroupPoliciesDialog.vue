@@ -297,6 +297,7 @@ const groupName = computed(() => props.group?.name ?? "");
                     class="btn btn--text btn--danger"
                     :disabled="detachingCode === p.code"
                     data-testid="group-policy-detach"
+                    :aria-label="`解绑策略 ${p.name || p.code}`"
                     @click="detach(p.code)"
                   >
                     {{ detachingCode === p.code ? "解绑中…" : "解绑" }}
