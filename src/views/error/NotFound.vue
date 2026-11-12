@@ -29,7 +29,21 @@ const route = useRoute()
 </script>
 
 <template>
-  <section class="not-found-page" role="alert" aria-live="polite" aria-labelledby="not-found-title">
+  <!--
+    根元素是 <main> 而不是 <section>（iter364）。
+
+    为什么：本页是**顶层路由**（`/:pathMatch(.*)*`），**不套 MainLayout**
+    —— 见下方样式注释「本页在外壳之外，必须自带背景 + 100vh 铺满」。
+    因此全页一个 landmark 都没有，读屏用户无法用「跳到主内容」绕过内容块。
+
+    为什么不会与外壳冲突：正是因为不套外壳，`mainCount` 实测恰为 1、无嵌套。
+    对照 cmdb：它的 404 是**渲染在 AppShell 里的**，外壳已有 `<main class="app-main">`，
+    所以那一页**不能**再加 —— 加了就是 `<main>` 嵌套（HTML 规范禁止）。
+    本仓 `views/organizations/OrgList.vue` 的注释就记录过这个坑
+    （「原先是 <main>，但外壳已有，实测 mainCount=2、nested=1」）。
+    **结论：404 该不该有 <main>，取决于它套不套外壳，不能跨仓照抄。**
+  -->
+  <main class="not-found-page" role="alert" aria-live="polite" aria-labelledby="not-found-title">
     <p class="not-found-code" aria-hidden="true">404</p>
     <h1 id="not-found-title" class="not-found-title">页面不存在</h1>
     <!-- 把用户实际访问的路径回显出来：便于用户自查拼写，也便于反馈问题时定位 -->
@@ -40,7 +54,7 @@ const route = useRoute()
       你访问的页面不存在或已被移除，请检查地址是否正确；也可以返回工作台继续操作。
     </p>
     <el-button type="primary" plain @click="router.push('/workbench')">返回工作台</el-button>
-  </section>
+  </main>
 </template>
 
 <style scoped>
