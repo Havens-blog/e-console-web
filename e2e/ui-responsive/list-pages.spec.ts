@@ -1488,7 +1488,7 @@ test.describe('弹窗栈', () => {
  * 读屏得不到「正在加载」信息（列表页已在 R5 修过，组织页当时漏掉）。
  */
 test.describe('组织页加载态可播报', () => {
-  test('加载中暴露 role=status，加载后清空', async ({ page }) => {
+  test('加载中暴露 role=status，加载后播报结果条数', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await loginAsAdmin(page)
 
@@ -1511,7 +1511,19 @@ test.describe('组织页加载态可播报', () => {
     expect(hidden, '状态区应视觉隐藏（sr-only）').toBe(true)
 
     await page.unroute('**/api/iam/department/list**')
-    await expect(status).toHaveText('', { timeout: 10_000 })
+
+    // 加载完成后**不是清空**，而是播报结果条数（iter345 的有意改进）。
+    //
+    // 本断言原为 `toHaveText('')`，对应的是 2026-10-27 `2b2aace4` 那版实现
+    // （`store.loading ? "正在加载组织树…" : ""`）—— 加载后恒为空串。
+    // 后来 `OrgList.vue` 改成三态播报（加载中 / 暂无组织数据 / 共 N 个组织），
+    // 读屏用户因此能听到「共 1 个组织」而不只是「加载完了」——**这比清空更有用**，
+    // 所以是**测试没跟上产品**，不是产品退化（iter365 按 S203 复核确认）。
+    //
+    // 现在断言「加载结束后 status 变为结果文案且不再是加载中文案」，
+    // 既锁住「确实播报了结果」，又不写死具体条数（数据量随环境变化）。
+    await expect(status).not.toContainText('正在加载', { timeout: 10_000 })
+    await expect(status).toHaveText(/暂无组织数据|共 \d+ 个组织/, { timeout: 10_000 })
   })
 })
 
