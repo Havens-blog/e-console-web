@@ -433,6 +433,7 @@ const hasActiveFilters = computed(() => store.keyword !== "");
                 type="button"
                 class="btn btn--text"
                 data-testid="edit-policy"
+                :aria-label="`编辑策略 ${p.name}`"
                 @click="openUpdate(p)"
               >
                 编辑
@@ -442,6 +443,7 @@ const hasActiveFilters = computed(() => store.keyword !== "");
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="delete-policy"
+                :aria-label="`删除策略 ${p.name}`"
                 @click="openDelete(p)"
               >
                 删除

@@ -441,6 +441,7 @@ function createdText(g: TenantGroup): string {
                 type="button"
                 class="btn btn--text"
                 data-testid="group-roles"
+                :aria-label="`查看 ${g.name} 的角色`"
                 @click="openRoles(g)"
               >
                 角色
@@ -450,6 +451,7 @@ function createdText(g: TenantGroup): string {
                 type="button"
                 class="btn btn--text"
                 data-testid="group-policies"
+                :aria-label="`查看 ${g.name} 的策略`"
                 @click="openPolicies(g)"
               >
                 策略
@@ -459,6 +461,7 @@ function createdText(g: TenantGroup): string {
                 type="button"
                 class="btn btn--text"
                 data-testid="group-members"
+                :aria-label="`查看 ${g.name} 的成员`"
                 @click="openMembers(g)"
               >
                 成员
@@ -468,6 +471,7 @@ function createdText(g: TenantGroup): string {
                 type="button"
                 class="btn btn--text"
                 data-testid="group-edit"
+                :aria-label="`编辑用户组 ${g.name}`"
                 @click="openEdit(g)"
               >
                 编辑
@@ -477,6 +481,7 @@ function createdText(g: TenantGroup): string {
                 type="button"
                 class="btn btn--text btn--danger"
                 data-testid="group-delete"
+                :aria-label="`删除用户组 ${g.name}`"
                 @click="openDelete(g)"
               >
                 删除
