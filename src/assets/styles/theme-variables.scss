@@ -87,18 +87,23 @@
 
 // ==================== 浅色主题 (Linear light mode 表面/边框映射) ====================
 :root.light {
+  // iter386: 浅色主题的「品牌色当文字色」对比度修正（原值都按深色底设计）。
+  //   --accent-blue #7170ff → #5b5be0：白底 3.84→5.23、页面底 3.61→4.91（全站按钮/链接文字色）
+  //   --color-danger #ef4444 → #dc2626：白底 3.76→4.83、页面底 3.54→4.54（危险文字按钮）
+  //   深色主题不动（那两组在深底上本来就够）。
+  //   --accent-green #10b981 → #087050：白底 2.54→6.10、16% 底纹上 2.18→4.81（成功徽章/NormalBadge）
   // 主色调
   --color-primary: #111111;
   --color-success: #27a644;
   --color-warning: #f59e0b;
-  --color-danger: #ef4444;
+  --color-danger: #dc2626;
   --color-info: #8a8f98;
 
   // 强调色 (两主题一致)
   --accent-primary: #5e6ad2;
-  --accent-blue: #7170ff;
+  --accent-blue: #5b5be0;
   --accent-cyan: #06b6d4;
-  --accent-green: #10b981;
+  --accent-green: #087050;
   --accent-yellow: #f59e0b;
   --accent-red: #ef4444;
   --accent-purple: #8b5cf6;

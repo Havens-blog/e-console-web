@@ -41,3 +41,34 @@
   --el-button-text-color: color-mix(in srgb, var(--el-color-primary) 70%, #fff);
   color: color-mix(in srgb, var(--el-color-primary) 70%, #fff);
 }
+
+// 浅色主题：同一对按钮改用**与黑混**
+// 上面那条「与白混 30%」是为深色底设计的（提亮）；浅色下 plain 按钮的底是
+// `#f0f1fb` 这种极浅蓝，提亮后的 #8e97e0 压上去只有 **2.45:1** ——
+// 是全站浅色最后的 2 处（403 页「返回工作台」）。
+//
+// 90% 混黑 = 4.97:1（白底 5.59）。与侧栏那条同一个道理：
+// **「混白提亮」的正确方向本来就跟主题绑定，不可能用一个值同时适配两个主题。**
+:root.light .el-button--primary.is-plain.is-plain {
+  --el-button-text-color: color-mix(in srgb, var(--el-color-primary) 90%, #000);
+  color: color-mix(in srgb, var(--el-color-primary) 90%, #000);
+}
+
+// ============================================
+// 浅色主题：侧栏「选中项」的强调色文字
+// ============================================
+// SidebarMenu.vue 里选中项用的是 `color-mix(in srgb, var(--accent-blue) 72%, #fff)`
+// —— **与白混是在提亮**，那是为**深色底**设计的（品牌蓝直接压深色底只有 3.89:1，
+// 提亮后 5.91:1）。同一行代码在**浅色主题**下方向正好相反：提亮后的 #9998ff 压在
+// 「品牌蓝 15% 浅底」#e7e9f8 上只有 **2.10:1**，是全站浅色里最差的一簇（9 处）。
+//
+// 修法：浅色下改为**与黑混**（压暗）。85% 时 = 5.23:1。
+// 不改 SidebarMenu.vue 本身，因为它那套混白在深色主题下是对的；
+// 也不能靠「一个值适配两个主题」——混白的正确方向本来就是相反的。
+//
+// 特异性 (0,4,0)：SidebarMenu 的 scoped 规则编译后是 `.sidebar-item.is-active[data-v-x]` (0,3,0)，
+// 且组件样式注入顺序不稳定，所以这里用重复类名抬到 (0,4,0) 确保覆盖。
+:root.light .sidebar-item.is-active.is-active,
+:root.light .sidebar-item.is-active.is-active .sidebar-item-icon {
+  color: color-mix(in srgb, var(--accent-blue) 85%, #000);
+}
