@@ -9,14 +9,14 @@
       "sourcePath": "src/assets/styles/theme-variables.scss",
       "sourceCommit": "d28829e0d119666ae0ca9c4d4129e9d29e83dc0e",
       "sourceCommitDate": "2026-09-20",
-      "sha256": "3e447ca109c9cbabd543727e430455ef0baae0fc5a8d0bacf9ec2ac9700d7696"
+      "sha256": "b60ecfe6c66aba3f44ae2e2b8185b49fcad64ea850055b010989cca5d6251c67"
     },
     {
       "path": "src/assets/styles/element-theme.scss",
       "sourcePath": "src/assets/styles/element-theme.scss",
       "sourceCommit": "5b345d7e2bbafefdb05165254e66553079e0318e",
       "sourceCommitDate": "2026-11-10",
-      "sha256": "e0db36b13c4d2c3c7a240a9f7c7677df602fa64407064e60d04f73ed589ec677",
+      "sha256": "c2b1cc94f12cde4f8aab47a36eee9bedb96cd2f91853cc5f7ed9a8a11caccdef",
       "note": "窄屏兜底同步（iter324 / P3）：吸收 e-cam-web #334 的 `.el-dialog` / `.el-drawer` `max-width: 92vw`（+10 行）。**对 console 是\"死规则\"** —— console 全仓 0 处 `el-dialog`/`el-drawer`，弹窗一律用自研 `.dialog` 组件（14 处，实测 390px 视口下 w=390/left=0/right=390 本就无溢出）。同步目的是让拷贝面与源保持一致、消除 Drift 红灯，不改变 console 的任何运行时行为。"
     },
     {
