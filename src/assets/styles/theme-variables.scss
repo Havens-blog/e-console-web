@@ -94,7 +94,10 @@
   //   --accent-green #10b981 → #087050：白底 2.54→6.10、16% 底纹上 2.18→4.81（成功徽章/NormalBadge）
   // 主色调
   --color-primary: #111111;
-  --color-success: #27a644;
+  // iter400: 浅色 --color-success 原为 #27a644（与深色同值），白底只有 3.17:1。
+  //   改 #1a7a30（白底 5.43、页面底 5.10），色相不变。深色不动。
+  //   注意 --accent-green 早在 iter386 已改 #087050 —— 这两个绿色令牌当时只改了一个。
+  --color-success: #1a7a30;
   --color-warning: #f59e0b;
   --color-danger: #dc2626;
   --color-info: #8a8f98;
