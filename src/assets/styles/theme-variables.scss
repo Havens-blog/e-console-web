@@ -87,6 +87,13 @@
 
 // ==================== 浅色主题 (Linear light mode 表面/边框映射) ====================
 :root.light {
+  // iter401（S238）：把「同族令牌 × 两主题」列成表后，一次补齐 6 个浅色仍与深色同值 / 不达标的令牌。
+  //   每个都按「白底 / 页面底」取最差值 ≥4.5；色相不变，深色一律不动。
+  //   --color-warning / --accent-yellow  #f59e0b → #9c6400（2.02 → 4.66）
+  //   --color-info                       保持不变 —— 它同时是标签文字色与标签底色的来源，压暗后底色也变暗，实测净效果更差。
+  //   --accent-purple                    #8b5cf6 → #7c3aed（3.98 → 5.36）
+  //   --accent-primary                   保持不变 —— 它是**规格锚定值**（theme-tokens.test.ts 断言 #5e6ad2 必须存在），且主按钮白字 4.70 已由按钮文字色修复。
+  //   --text-placeholder                 #999999 → #707070（2.68 → 4.65）
   // iter386: 浅色主题的「品牌色当文字色」对比度修正（原值都按深色底设计）。
   //   --accent-blue #7170ff → #5b5be0：白底 3.84→5.23、页面底 3.61→4.91（全站按钮/链接文字色）
   //   --color-danger #ef4444 → #dc2626：白底 3.76→4.83、页面底 3.54→4.54（危险文字按钮）
@@ -98,7 +105,7 @@
   //   改 #1a7a30（白底 5.43、页面底 5.10），色相不变。深色不动。
   //   注意 --accent-green 早在 iter386 已改 #087050 —— 这两个绿色令牌当时只改了一个。
   --color-success: #1a7a30;
-  --color-warning: #f59e0b;
+  --color-warning: #9c6400;
   --color-danger: #dc2626;
   --color-info: #8a8f98;
 
@@ -107,11 +114,11 @@
   --accent-blue: #5b5be0;
   --accent-cyan: #06b6d4;
   --accent-green: #087050;
-  --accent-yellow: #f59e0b;
+  --accent-yellow: #9c6400;
   // iter399: 浅色 --accent-red 原为 #ef4444（与深色同值），白底只有 3.76:1。
   //   与 --color-danger 对齐为 #dc2626（白底 4.83、页面底 4.54）。深色不动。
   --accent-red: #dc2626;
-  --accent-purple: #8b5cf6;
+  --accent-purple: #7c3aed;
 
   // 背景层级 (Linear light mode)
   --bg-base: #f7f8f8;
@@ -127,7 +134,7 @@
   --text-secondary: #666666;
   --text-tertiary: #6a6a6a;
   --text-muted: #6e6e6e;
-  --text-placeholder: #999999;
+  --text-placeholder: #707070;
 
   // 边框颜色 (Linear light border)
   --border-subtle: rgba(0, 0, 0, 0.05);
