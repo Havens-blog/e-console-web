@@ -105,7 +105,9 @@
   --accent-cyan: #06b6d4;
   --accent-green: #087050;
   --accent-yellow: #f59e0b;
-  --accent-red: #ef4444;
+  // iter399: 浅色 --accent-red 原为 #ef4444（与深色同值），白底只有 3.76:1。
+  //   与 --color-danger 对齐为 #dc2626（白底 4.83、页面底 4.54）。深色不动。
+  --accent-red: #dc2626;
   --accent-purple: #8b5cf6;
 
   // 背景层级 (Linear light mode)
